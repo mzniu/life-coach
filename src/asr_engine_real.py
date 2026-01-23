@@ -12,7 +12,9 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from config import ASR_MODEL_SIZE, ASR_COMPUTE_TYPE, ASR_BEAM_SIZE, ASR_VAD_FILTER
+    from config import (ASR_MODEL_SIZE, ASR_COMPUTE_TYPE, ASR_BEAM_SIZE, ASR_VAD_FILTER,
+                        TEXT_CORRECTION_ENABLED, TEXT_CORRECTION_MODEL, 
+                        TEXT_CORRECTION_MAX_TOKENS, TEXT_CORRECTION_TEMPERATURE, TEXT_CORRECTION_TIMEOUT)
     USE_CONFIG = True
 except ImportError:
     # 如果没有 config.py，使用默认值
@@ -20,6 +22,7 @@ except ImportError:
     ASR_COMPUTE_TYPE = "int8"
     ASR_BEAM_SIZE = 5
     ASR_VAD_FILTER = True
+    TEXT_CORRECTION_ENABLED = False
     USE_CONFIG = False
 
 # 尝试导入真实ASR库
@@ -35,7 +38,7 @@ except ImportError:
     print("[ASR警告] 安装方法: pip install faster-whisper")
 
 class ASREngine:
-    """ASR转写引擎（支持真实和模拟模式）"""
+    """ASR转写引擎（支持真实和模拟模式 + 文本纠错）"""
     
     def __init__(self, model_size=None, device="cpu", compute_type=None):
         """
@@ -50,6 +53,24 @@ class ASREngine:
         self.model_size = model_size if model_size is not None else ASR_MODEL_SIZE
         self.device = device
         self.compute_type = compute_type if compute_type is not None else ASR_COMPUTE_TYPE
+        
+        # 初始化文本纠错模块
+        self.text_corrector = None
+        if TEXT_CORRECTION_ENABLED:
+            try:
+                from src.text_corrector import get_text_corrector
+                self.text_corrector = get_text_corrector(
+                    model_path=TEXT_CORRECTION_MODEL,
+                    max_tokens=TEXT_CORRECTION_MAX_TOKENS,
+                    temperature=TEXT_CORRECTION_TEMPERATURE,
+                    timeout=TEXT_CORRECTION_TIMEOUT
+                )
+                print("[ASR] 文本纠错功能已启用")
+            except Exception as e:
+                print(f"[ASR警告] 文本纠错初始化失败: {e}, 将跳过纠错")
+                self.text_corrector = None
+        else:
+            print("[ASR] 文本纠错功能未启用")
         
         if REAL_ASR:
             print(f"[ASR] 加载 Whisper 模型: {self.model_size} ({self.device}, {self.compute_type})")
@@ -158,6 +179,33 @@ class ASREngine:
                     callback(100, result)
                 
                 print(f"[ASR] 转写完成: {len(result)} 字符")
+                
+                # 文本纠错（如果启用）
+                if self.text_corrector is not None:
+                    print("[ASR] 开始文本纠错...")
+                    try:
+                        correction_result = self.text_corrector.correct(result)
+                        
+                        if correction_result['success'] and correction_result['changed']:
+                            print(f"[ASR] 纠错完成: {correction_result['time_ms']}ms")
+                            print(f"[ASR] 原文: {result}")
+                            print(f"[ASR] 纠正: {correction_result['corrected']}")
+                            print(f"[ASR] 变化: {correction_result['changes']}")
+                            
+                            # 返回带纠错信息的结果
+                            return {
+                                "text": correction_result['corrected'],
+                                "text_original": result,
+                                "correction_enabled": True,
+                                "correction_changes": correction_result['changes'],
+                                "correction_time_ms": correction_result['time_ms']
+                            }
+                        else:
+                            print(f"[ASR] 纠错无变化或失败")
+                    except Exception as e:
+                        print(f"[ASR警告] 纠错过程异常: {e}, 返回原文")
+                
+                # 返回普通结果
                 return result
                 
             else:

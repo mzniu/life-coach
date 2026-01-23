@@ -41,7 +41,24 @@ bash setup-resilio-sync.sh
 
 详细步骤见 [QUICKSTART.md](QUICKSTART.md) 或 [deploy/README.md](deploy/README.md)
 
-### 4. 访问Web监控面板
+### 4. （可选）下载文本纠错模型
+
+如需启用ASR后的文本纠错功能：
+
+```bash
+# SSH登录到树莓派
+cd ~/LifeCoach
+python deploy/download_qwen_model.py
+```
+
+下载完成后，在 `.env` 中设置：
+```bash
+TEXT_CORRECTION_ENABLED=true
+```
+
+模型文件约330MB，下载支持断点续传。
+
+### 5. 访问Web监控面板
 
 打开浏览器访问：http://192.168.1.100:5000
 
@@ -53,6 +70,7 @@ bash setup-resilio-sync.sh
 - ✅ Web监控面板（浏览器实时查看状态）
 - ✅ RESTful API（支持前端开发）
 - ✅ WebSocket实时通信（状态推送）
+- ✅ 文本纠错（ASR后自动修正错别字和标点，可选）
 - 🔲 GPIO按键控制（K1录音/K4退出）
 - 🔲 OLED双屏显示（状态/统计）
 - 🔲 USB麦克风录音
@@ -89,6 +107,16 @@ POST /api/recording/cancel  # 取消录音
 GET  /api/recordings         # 获取列表
 GET  /api/recordings/:id     # 获取详情
 DELETE /api/recordings/:id   # 删除
+```
+
+#### 文本纠错（可选）
+```bash
+POST /api/correct_text       # 纠正文本错别字和标点
+# 请求体: {"text": "要纠正的文本"}
+# 返回: {"corrected": "纠正后的文本", "changes": [...]}
+
+GET /api/correct_text/stats  # 获取纠错统计信息
+# 返回: {"total_corrections": 10, "cache_hits": 5, ...}
 ```
 
 完整API文档：[docs/proposals/API接口设计.md](docs/proposals/API接口设计.md)
@@ -211,6 +239,57 @@ i2cdetect -y 1
 ```
 
 应该看到 `3c` 和 `3d` 地址
+
+### 5. 文本纠错功能无效？
+
+**确认模型已下载：**
+```bash
+ls -lh ~/LifeCoach/models/qwen2.5-0.5b/
+```
+
+**检查环境变量：**
+```bash
+# .env 文件中确认
+TEXT_CORRECTION_ENABLED=true
+```
+
+**查看启动日志：**
+```bash
+sudo journalctl -u lifecoach -f
+# 应该看到 "Text correction enabled"
+```
+
+---
+
+## 配置说明
+
+### 环境变量（.env）
+
+核心配置项（其他配置见 `.env.example`）：
+
+```bash
+# === 文本纠错（可选） ===
+TEXT_CORRECTION_ENABLED=false                                    # 是否启用纠错功能
+TEXT_CORRECTION_MODEL=/home/pi/LifeCoach/models/qwen2.5-0.5b/...gguf  # 模型路径
+TEXT_CORRECTION_MAX_TOKENS=512                                   # 最大生成token数
+TEXT_CORRECTION_TEMPERATURE=0.3                                  # 生成温度（0-1，越低越保守）
+TEXT_CORRECTION_TIMEOUT=15                                       # 超时秒数
+
+# === 音频设置 ===
+AUDIO_DEVICE_INDEX=2                                             # USB麦克风设备编号
+AUDIO_SAMPLE_RATE=16000
+```
+
+### 性能调优
+
+**树莓派4（4GB/8GB）：**
+- Whisper Tiny模型：ASR延迟约1-2秒/句话
+- Qwen2.5-0.5B模型：纠错耗时3-8秒（已启用OpenBLAS加速）
+- 峰值内存占用：约800MB（Whisper）+ 400MB（Qwen）
+
+**缓存策略：**
+- 文本纠错启用LRU缓存（最多50条）
+- 重复输入直接返回缓存结果
 
 ---
 

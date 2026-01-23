@@ -16,6 +16,10 @@ scipy==1.11.4
 # ASR引擎（使用CPU版本，INT8量化）
 faster-whisper==1.1.0
 
+# 文本纠错（可选，需要 ~330MB 模型）
+# 启用前需要: export TEXT_CORRECTION_ENABLED=true
+llama-cpp-python==0.2.89
+
 # 声纹识别
 librosa==0.10.2
 scikit-learn==1.5.0

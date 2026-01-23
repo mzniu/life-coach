@@ -202,10 +202,94 @@ body {
 
 /* ===== CONTROL SECTION ===== */
 .control-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-xl);
+}
+
+.control-row {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: var(--spacing-md);
-    margin-bottom: var(--spacing-xl);
+}
+
+/* Correction Toggle */
+.correction-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    border: var(--border-width) solid var(--border-secondary);
+    background: var(--bg-card);
+}
+
+.toggle-label {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    cursor: pointer;
+    user-select: none;
+}
+
+.toggle-label input[type="checkbox"] {
+    position: relative;
+    width: 48px;
+    height: 24px;
+    appearance: none;
+    background: var(--bg-secondary);
+    border: var(--border-width) solid var(--border-secondary);
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.toggle-label input[type="checkbox"]::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: var(--text-secondary);
+    transition: transform 0.2s;
+}
+
+.toggle-label input[type="checkbox"]:checked {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+.toggle-label input[type="checkbox"]:checked::before {
+    background: var(--text-primary);
+    transform: translateX(24px);
+}
+
+.toggle-label input[type="checkbox"]:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.toggle-text {
+    font-family: var(--font-code);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+}
+
+.correction-status {
+    font-family: var(--font-code);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.correction-status.enabled {
+    color: var(--accent-success);
+}
+
+.correction-status.unavailable {
+    color: var(--accent-warning);
 }
 
 .btn {
@@ -396,10 +480,56 @@ body {
 .recording-meta {
     display: flex;
     gap: var(--spacing-md);
+    align-items: center;
     font-family: var(--font-code);
     font-size: 11px;
     color: var(--text-secondary);
     margin-bottom: var(--spacing-sm);
+}
+
+.correction-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    font-family: var(--font-code);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.recording-text {
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.6;
+    margin-bottom: var(--spacing-sm);
+}
+
+.recording-original {
+    margin-top: var(--spacing-sm);
+}
+
+.recording-original summary {
+    font-family: var(--font-code);
+    font-size: 11px;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+}
+
+.recording-original summary:hover {
+    color: var(--text-secondary);
+}
+
+.original-text {
+    margin-top: var(--spacing-sm);
+    padding: var(--spacing-sm);
+    background: var(--bg-secondary);
+    border-left: var(--border-width) solid var(--accent-warning);
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
 }
 
 .recording-preview {
@@ -620,7 +750,7 @@ body {
         font-size: 20px;
     }
     
-    .control-section {
+    .control-row {
         grid-template-columns: 1fr;
     }
     

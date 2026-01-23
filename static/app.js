@@ -9,6 +9,10 @@ const socket = io(window.location.origin);
 let currentState = 'idle';
 let recordingStartTime = null;
 let timerInterval = null;
+let correctionEnabled = false;
+let correctionAvailable = false;
+let correctionEnabled = false;
+let correctionAvailable = false;
 
 // ==================== WebSocket 事件监听 ====================
 
@@ -57,6 +61,7 @@ window.addEventListener('DOMContentLoaded', () => {
     console.log('[页面加载] 初始化...');
     refreshSystemStatus();
     refreshRecordings();
+    checkCorrectionStatus();
     
     // 定期刷新状态（每10秒）
     setInterval(refreshSystemStatus, 10000);
@@ -182,14 +187,20 @@ function displayRecordings(recordings) {
         return;
     }
     
-    container.innerHTML = recordings.map(rec => `
+    container.innerHTML = recordings.map(rec => {
+        const hasCorrectedText = rec.text_corrected && rec.text_corrected !== rec.text_original;
+        const displayText = hasCorrectedText ? rec.text_corrected : (rec.preview || '');
+        
+        return `
         <div class="recording-item">
             <div class="recording-info">
                 <div class="recording-title">${rec.date} ${rec.time}</div>
                 <div class="recording-meta">
                     时长: ${formatDuration(rec.duration)} | 字数: ${rec.word_count}字
+                    ${hasCorrectedText ? '<span class="correction-badge">已纠错</span>' : ''}
                 </div>
-                <div class="recording-meta">${rec.preview}</div>
+                <div class="recording-text">${displayText}</div>
+                ${hasCorrectedText ? `<details class="recording-original"><summary>查看原始文本</summary><div class="original-text">${rec.text_original || rec.preview}</div></details>` : ''}
             </div>
             <div class="recording-actions">
                 <button class="btn btn-small" onclick="playRecording('${rec.id}')" title="播放录音">
@@ -205,7 +216,8 @@ function displayRecordings(recordings) {
                 </button>
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 }
 
 async function playRecording(recordingId) {
@@ -436,4 +448,48 @@ function showSuccess(message) {
 
 function showError(message) {
     showModal('错误', '❌ ' + message);
+}
+
+// ==================== 文本纠错功能 ====================
+
+async function checkCorrectionStatus() {
+    try {
+        const result = await apiCall('/correct_text/stats');
+        correctionAvailable = result.model_loaded !== false;
+        updateCorrectionUI();
+        console.log('[纠错状态]', correctionAvailable ? '可用' : '不可用');
+    } catch (error) {
+        console.log('[纠错功能] 未启用或不可用');
+        correctionAvailable = false;
+        updateCorrectionUI();
+    }
+}
+
+function toggleCorrection() {
+    const checkbox = document.getElementById('correction-enabled');
+    correctionEnabled = checkbox.checked;
+    updateCorrectionUI();
+    console.log('[纠错开关]', correctionEnabled ? '已启用' : '已禁用');
+}
+
+function updateCorrectionUI() {
+    const checkbox = document.getElementById('correction-enabled');
+    const status = document.getElementById('correction-status');
+    
+    if (!correctionAvailable) {
+        checkbox.disabled = true;
+        checkbox.checked = false;
+        correctionEnabled = false;
+        status.textContent = '(模型未加载)';
+        status.className = 'correction-status unavailable';
+    } else {
+        checkbox.disabled = false;
+        if (correctionEnabled) {
+            status.textContent = '✓ 已启用';
+            status.className = 'correction-status enabled';
+        } else {
+            status.textContent = '';
+            status.className = 'correction-status';
+        }
+    }
 }

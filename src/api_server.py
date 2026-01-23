@@ -161,6 +161,147 @@ def delete_recording(recording_id):
     else:
         return jsonify(result), 404
 
+# ==================== 文本纠错 API ====================
+
+@app.route('/api/correct_text', methods=['POST'])
+def correct_text():
+    """
+    文本纠错 API
+    
+    请求体:
+    {
+        "text": "待纠错的文本"
+    }
+    
+    响应:
+    {
+        "success": true,
+        "original": "原始文本",
+        "corrected": "纠正后的文本",
+        "changed": true,
+        "changes": [...],
+        "time_ms": 3245
+    }
+    """
+    try:
+        # 检查服务是否初始化
+        if not app_manager:
+            return jsonify({"success": False, "error": "服务未初始化"}), 500
+        
+        # 获取请求数据
+        data = request.get_json()
+        if not data or 'text' not in data:
+            return jsonify({
+                "success": False,
+                "error": "缺少参数: text"
+            }), 400
+        
+        text = data['text']
+        
+        # 检查文本长度
+        if not text or len(text.strip()) == 0:
+            return jsonify({
+                "success": False,
+                "error": "文本不能为空"
+            }), 400
+        
+        if len(text) > 5000:
+            return jsonify({
+                "success": False,
+                "error": "文本过长（最多 5000 字符）"
+            }), 400
+        
+        # 检查纠错功能是否启用
+        from src.config import TEXT_CORRECTION_ENABLED
+        if not TEXT_CORRECTION_ENABLED:
+            return jsonify({
+                "success": False,
+                "error": "文本纠错功能未启用",
+                "hint": "请在 .env 中设置 TEXT_CORRECTION_ENABLED=true"
+            }), 503
+        
+        # 获取纠错器实例
+        if not hasattr(app_manager, 'asr') or not hasattr(app_manager.asr, 'text_corrector'):
+            return jsonify({
+                "success": False,
+                "error": "文本纠错模块未初始化"
+            }), 503
+        
+        corrector = app_manager.asr.text_corrector
+        
+        if corrector is None:
+            return jsonify({
+                "success": False,
+                "error": "文本纠错模块不可用",
+                "hint": "可能是模型文件不存在或加载失败"
+            }), 503
+        
+        # 执行纠错
+        result = corrector.correct(text)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "error": f"纠错失败: {str(e)}"
+        }), 500
+
+@app.route('/api/correct_text/stats', methods=['GET'])
+def get_correction_stats():
+    """
+    获取文本纠错统计信息
+    
+    响应:
+    {
+        "success": true,
+        "stats": {
+            "is_loaded": true,
+            "correction_count": 42,
+            "cache_hits": 10,
+            ...
+        }
+    }
+    """
+    try:
+        if not app_manager:
+            return jsonify({"success": False, "error": "服务未初始化"}), 500
+        
+        # 检查纠错模块是否存在
+        if not hasattr(app_manager, 'asr') or not hasattr(app_manager.asr, 'text_corrector'):
+            return jsonify({
+                "success": False,
+                "error": "文本纠错模块未初始化"
+            }), 503
+        
+        corrector = app_manager.asr.text_corrector
+        
+        if corrector is None:
+            return jsonify({
+                "success": True,
+                "stats": {
+                    "is_loaded": False,
+                    "enabled": False
+                }
+            })
+        
+        stats = corrector.get_stats()
+        
+        return jsonify({
+            "success": True,
+            "stats": stats
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"获取统计信息失败: {str(e)}"
+        }), 500
+
+# ==================== 系统控制 API ====================
+
 @app.route('/api/system/shutdown', methods=['POST'])
 def shutdown_system():
     """关闭程序"""

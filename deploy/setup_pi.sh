@@ -54,7 +54,7 @@ sudo apt-get update -qq
 # 安装系统依赖（检查是否已安装）
 echo "[2/6] 检查系统依赖..."
 PACKAGES_TO_INSTALL=""
-for pkg in python3 python3-pip python3-venv python3-dev portaudio19-dev libsndfile1 ffmpeg git curl; do
+for pkg in python3 python3-pip python3-venv python3-dev portaudio19-dev libsndfile1 ffmpeg git curl libopenblas-dev; do
     if ! dpkg -s $pkg >/dev/null 2>&1; then
         PACKAGES_TO_INSTALL="$PACKAGES_TO_INSTALL $pkg"
     fi
@@ -84,9 +84,20 @@ source venv/bin/activate
 # 升级pip
 pip install --upgrade pip -q -i https://mirrors.aliyun.com/pypi/simple/
 
-# 安装依赖
+# 安装依赖（排除 llama-cpp-python）
 if [ -f "requirements-pi.txt" ]; then
-    pip install -r requirements-pi.txt -q -i https://mirrors.aliyun.com/pypi/simple/
+    # 先安装除 llama-cpp-python 以外的依赖
+    grep -v "llama-cpp-python" requirements-pi.txt > /tmp/requirements_temp.txt
+    pip install -r /tmp/requirements_temp.txt -q -i https://mirrors.aliyun.com/pypi/simple/
+    
+    # 单独安装 llama-cpp-python，使用 ARM NEON 优化
+    if grep -q "llama-cpp-python" requirements-pi.txt; then
+        echo "  → 编译安装 llama-cpp-python（ARM 优化）..."
+        CMAKE_ARGS="-DLLAMA_BLAS=ON -DLLAMA_BLAS_VENDOR=OpenBLAS" \
+        pip install llama-cpp-python==0.2.89 --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ \
+        || echo "  ⚠ llama-cpp-python 安装失败，文本纠错功能将不可用"
+    fi
+    
     echo "  ✓ Python依赖安装完成"
 else
     echo "  ⚠ 未找到 requirements-pi.txt，跳过"

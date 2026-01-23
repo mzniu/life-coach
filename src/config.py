@@ -78,6 +78,25 @@ STREAM_CHUNK_SECONDS = 3  # 每3秒音频进行一次转写
 LOG_PATH = os.path.join(os.path.dirname(STORAGE_BASE), "logs", "app.log")  # 日志文件路径
 MODEL_CACHE = os.path.join(os.path.dirname(STORAGE_BASE), "models")  # 模型缓存目录
 
+# ==================== 文本纠错配置 ====================
+# 是否启用文本纠错功能（默认关闭，需手动启用）
+TEXT_CORRECTION_ENABLED = os.getenv('TEXT_CORRECTION_ENABLED', 'false').lower() == 'true'
+
+# 纠错模型路径（GGUF 格式）
+TEXT_CORRECTION_MODEL = os.getenv(
+    'TEXT_CORRECTION_MODEL',
+    os.path.join(MODEL_CACHE, "qwen2.5-0.5b", "qwen2.5-0.5b-instruct-q4_k_m.gguf")
+)
+
+# 最大生成 token 数（控制输出长度）
+TEXT_CORRECTION_MAX_TOKENS = int(os.getenv('TEXT_CORRECTION_MAX_TOKENS', '512'))
+
+# 温度参数（0-1，越低越确定，推荐 0.3）
+TEXT_CORRECTION_TEMPERATURE = float(os.getenv('TEXT_CORRECTION_TEMPERATURE', '0.3'))
+
+# 推理超时时间（秒）
+TEXT_CORRECTION_TIMEOUT = int(os.getenv('TEXT_CORRECTION_TIMEOUT', '15'))
+
 # ==================== 显示参数 ====================
 # 中文字体路径（需安装 fonts-wqy-zenhei）
 FONT_PATH = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"

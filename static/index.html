@@ -58,12 +58,13 @@
 
         <!-- Control Panel -->
         <section class="control-section">
-            <button id="btn-start" class="btn btn-primary" onclick="startRecording()">
-                <svg class="btn-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                    <circle cx="8" cy="8" r="6"></circle>
-                </svg>
-                <span>开始录音 // START</span>
-            </button>
+            <div class="control-row">
+                <button id="btn-start" class="btn btn-primary" onclick="startRecording()">
+                    <svg class="btn-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <circle cx="8" cy="8" r="6"></circle>
+                    </svg>
+                    <span>开始录音 // START</span>
+                </button>
             <button id="btn-stop" class="btn btn-secondary" onclick="stopRecording()" disabled>
                 <svg class="btn-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                     <rect x="4" y="4" width="8" height="8"></rect>
@@ -83,6 +84,15 @@
                 </svg>
                 <span>声纹管理 // VOICEPRINT</span>
             </a>
+            </div>
+            <div class="correction-toggle">
+                <label class="toggle-label">
+                    <input type="checkbox" id="correction-enabled" onchange="toggleCorrection()">
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-text">文本纠错 // TEXT CORRECTION</span>
+                </label>
+                <span id="correction-status" class="correction-status"></span>
+            </div>
         </section>
 
         <!-- Progress Bar -->
