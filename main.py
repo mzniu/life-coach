@@ -211,7 +211,7 @@ class LifeCoachApp:
                 }
             }
     
-    def _finish_recording(self, content, audio_data=None):
+    def _finish_recording(self, content, audio_data=None, correction_info=None):
         """完成录音"""
         metadata = {
             'duration': self.recording_duration,
@@ -233,7 +233,8 @@ class LifeCoachApp:
         api_server.broadcast_recording_complete(
             self.recording_id,
             self.word_count,
-            self.recording_duration
+            self.recording_duration,
+            correction_info
         )
         
         self.state = AppState.DONE
@@ -335,12 +336,28 @@ class LifeCoachApp:
                     self.display.update_progress(percent, "转写中")
                 api_server.broadcast_processing_progress(percent, text)
             
-            content = self.asr.transcribe_stream(audio_data, callback=progress_callback)
+            result = self.asr.transcribe_stream(audio_data, callback=progress_callback)
+            
+            # 处理返回结果：可能是字符串或字典（带纠错信息）
+            correction_info = None
+            if isinstance(result, dict):
+                # 纠错模式返回的字典
+                content = result.get('text', '')
+                print(f"[转写] 完成（纠错模式）: 原文 {len(result.get('text_original', ''))} 字 → 纠正后 {len(content)} 字")
+                if result.get('correction_changes'):
+                    print(f"[转写] 纠正详情: {result['correction_changes']}")
+                    correction_info = {
+                        'applied': True,
+                        'changes': result['correction_changes'],
+                        'time_ms': result.get('correction_time_ms', 0)
+                    }
+            else:
+                # 普通模式返回字符串
+                content = result
+                print(f"[转写] 完成，共 {len(content)} 字")
+            
             self.word_count = len(content)
-            
-            print(f"[转写] 完成，共 {self.word_count} 字")
-            
-            self._finish_recording(content, audio_data)
+            self._finish_recording(content, audio_data, correction_info)
             
         except Exception as e:
             print(f"[错误] 转写失败: {e}")

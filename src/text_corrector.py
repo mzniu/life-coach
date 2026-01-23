@@ -143,7 +143,8 @@ class TextCorrector:
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
                 top_p=0.95,
-                stop=["原始文本：", "\n\n"],  # 停止标记
+                repeat_penalty=1.1,
+                stop=["原始文本：", "\n\n"],
                 echo=False
             )
             
@@ -152,9 +153,21 @@ class TextCorrector:
             # 提取生成的文本
             corrected_text = output['choices'][0]['text'].strip()
             
-            # 清理可能的前缀
-            if corrected_text.startswith("纠正后的文本："):
-                corrected_text = corrected_text[len("纠正后的文本："):].strip()
+            # 清理可能的前缀和后缀
+            prefixes = ["纠正后的文本：", "纠正后：", "纠正后的文本:", "纠正后:"]
+            for prefix in prefixes:
+                if corrected_text.startswith(prefix):
+                    corrected_text = corrected_text[len(prefix):].strip()
+                    break
+            
+            # 清理重复的内容（如果文本长度异常则只取前半部分）
+            if len(corrected_text) > len(text) * 3:  # 如果纠正后长度超过原文3倍，可能有问题
+                logger.warning(f"[文本纠错] 检测到异常长度，原文 {len(text)} -> 纠正后 {len(corrected_text)}，截断处理")
+                # 尝试按重复模式分割
+                lines = corrected_text.split('\n')
+                if lines:
+                    corrected_text = lines[0].strip()  # 只取第一行
+
             
             logger.info(f"[文本纠错] 推理完成, 耗时: {inference_time:.2f}秒, "
                        f"输入: {len(text)} -> 输出: {len(corrected_text)} 字符")

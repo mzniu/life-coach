@@ -9,9 +9,7 @@ const socket = io(window.location.origin);
 let currentState = 'idle';
 let recordingStartTime = null;
 let timerInterval = null;
-let correctionEnabled = false;
-let correctionAvailable = false;
-let correctionEnabled = false;
+let correctionEnabled = true;  // 默认启用纠正
 let correctionAvailable = false;
 
 // ==================== WebSocket 事件监听 ====================
@@ -48,6 +46,11 @@ socket.on('recording_complete', (data) => {
     showRecordingComplete(data);
     refreshRecordings();
     refreshSystemStatus();
+    
+    // 如果有纠正信息，在控制台输出
+    if (data.correction_applied) {
+        console.log('[文本纠错] 已应用', data.correction_changes);
+    }
 });
 
 socket.on('error_occurred', (data) => {
@@ -192,7 +195,7 @@ function displayRecordings(recordings) {
         const displayText = hasCorrectedText ? rec.text_corrected : (rec.preview || '');
         
         return `
-        <div class="recording-item">
+        <div class="recording-item" id="rec-${rec.id}">
             <div class="recording-info">
                 <div class="recording-title">${rec.date} ${rec.time}</div>
                 <div class="recording-meta">
@@ -201,6 +204,7 @@ function displayRecordings(recordings) {
                 </div>
                 <div class="recording-text">${displayText}</div>
                 ${hasCorrectedText ? `<details class="recording-original"><summary>查看原始文本</summary><div class="original-text">${rec.text_original || rec.preview}</div></details>` : ''}
+                <div id="correction-result-${rec.id}" class="correction-result" style="display:none;"></div>
             </div>
             <div class="recording-actions">
                 <button class="btn btn-small" onclick="playRecording('${rec.id}')" title="播放录音">
@@ -208,10 +212,20 @@ function displayRecordings(recordings) {
                         <path d="M3 2v12l10-6z"></path>
                     </svg>
                 </button>
-                <button class="btn btn-small btn-primary" onclick="viewRecording('${rec.id}')">
+                <button class="btn btn-small btn-warning" onclick="recorrectRecording('${rec.id}')" title="重新纠正">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M13.5 2l-7.5 7.5-3.5-3.5-2.5 2.5 6 6 10-10z"></path>
+                    </svg>
+                </button>
+                <button class="btn btn-small btn-secondary" onclick="viewCorrectedText('${rec.id}')" title="查看纠正后文本">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M2 3h12v2H2zm0 4h12v2H2zm0 4h8v2H2z"></path>
+                    </svg>
+                </button>
+                <button class="btn btn-small btn-primary" onclick="viewRecording('${rec.id}')" title="查看详情">
                     查看
                 </button>
-                <button class="btn btn-small btn-danger" onclick="deleteRecording('${rec.id}')">
+                <button class="btn btn-small btn-danger" onclick="deleteRecording('${rec.id}')" title="删除">
                     删除
                 </button>
             </div>
@@ -358,8 +372,25 @@ function showRecordingComplete(data) {
         window.transcribeStartTime = null;
     }
     
+    // 纠正信息
+    let correctionText = '';
+    if (data.correction_applied && data.correction_changes) {
+        // 格式化changes
+        let changesDisplay = '';
+        if (typeof data.correction_changes === 'string') {
+            changesDisplay = data.correction_changes;
+        } else if (Array.isArray(data.correction_changes)) {
+            changesDisplay = data.correction_changes.map(c => c.description).join('；');
+        } else {
+            changesDisplay = JSON.stringify(data.correction_changes);
+        }
+        correctionText = `\n✓ 文本纠错: ${changesDisplay}`;
+    } else if (correctionEnabled && !data.correction_applied) {
+        correctionText = '\n○ 文本纠错: 无需修改';
+    }
+    
     hideProgressBar();
-    showSuccess(`录音完成！共 ${data.word_count} 字，时长 ${formatDuration(data.duration)}${transcribeTimeText}`);
+    showSuccess(`录音完成！共 ${data.word_count} 字，时长 ${formatDuration(data.duration)}${transcribeTimeText}${correctionText}`);
 }
 
 function resetControls() {
@@ -493,3 +524,162 @@ function updateCorrectionUI() {
         }
     }
 }
+
+// ==================== 日志功能 ====================
+
+function addLog(message, type = 'info') {
+    const logContent = document.getElementById('log-content');
+    const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    
+    const logEntry = document.createElement('div');
+    logEntry.className = `log-entry log-${type}`;
+    logEntry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span>${message}`;
+    
+    logContent.appendChild(logEntry);
+    logContent.scrollTop = logContent.scrollHeight;
+    
+    // 限制日志条数
+    const maxLogs = 500;
+    while (logContent.children.length > maxLogs) {
+        logContent.removeChild(logContent.firstChild);
+    }
+}
+
+function clearLogs() {
+    const logContent = document.getElementById('log-content');
+    logContent.innerHTML = '';
+    addLog('日志已清空', 'info');
+}
+
+// 拦截console.log并显示到日志窗口
+const originalConsoleLog = console.log;
+console.log = function(...args) {
+    originalConsoleLog.apply(console, args);
+    const message = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+    ).join(' ');
+    addLog(message, 'info');
+};
+
+const originalConsoleError = console.error;
+console.error = function(...args) {
+    originalConsoleError.apply(console, args);
+    const message = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+    ).join(' ');
+    addLog(message, 'error');
+};
+
+// ==================== 重新纠正功能 ====================
+
+async function recorrectRecording(recordingId) {
+    addLog(`开始重新纠正录音: ${recordingId}`, 'info');
+    
+    try {
+        // 获取录音详情
+        const recResult = await apiCall(`/recordings/${recordingId}`);
+        const recording = recResult.recording;
+        
+        if (!recording || !recording.content) {
+            addLog('无法获取录音内容', 'error');
+            showModal('错误', '无法获取录音内容');
+            return;
+        }
+        
+        const originalText = recording.content;
+        addLog(`原始文本: ${originalText.substring(0, 50)}...`, 'info');
+        
+        // 调用纠正API
+        addLog('调用文本纠正API...', 'info');
+        const correctionResult = await apiCall('/correct_text', 'POST', { text: originalText });
+        
+        if (!correctionResult.success) {
+            addLog(`纠正失败: ${correctionResult.error}`, 'error');
+            showModal('纠正失败', correctionResult.error || '未知错误');
+            return;
+        }
+        
+        const correctedText = correctionResult.corrected;
+        const changed = correctionResult.changed;
+        const changes = correctionResult.changes;
+        
+        // 格式化changes为易读文本
+        let changesText = '';
+        if (Array.isArray(changes)) {
+            changesText = changes.map(change => change.description).join('；');
+        } else if (typeof changes === 'string') {
+            changesText = changes;
+        } else {
+            changesText = JSON.stringify(changes);
+        }
+        
+        // 保存纠正后文本到文件
+        if (changed) {
+            try {
+                await apiCall(`/recordings/${recordingId}/corrected`, 'POST', {
+                    corrected_text: correctedText,
+                    changes: changesText
+                });
+                addLog(`✓ 纠正文本已保存: ${recordingId}.corrected.txt`, 'success');
+            } catch (error) {
+                addLog(`⚠ 保存纠正文本失败: ${error.message}`, 'warning');
+            }
+        }
+        
+        // 显示结果
+        const resultDiv = document.getElementById(`correction-result-${recordingId}`);
+        if (resultDiv) {
+            if (changed) {
+                resultDiv.innerHTML = `
+                    <div style="margin-top: 8px; padding: 8px; background: #0a3a0a; border-left: 2px solid #00ff00;">
+                        <strong>✓ 纠正详情:</strong> ${changesText}<br>
+                        <strong>纠正后文本:</strong> ${correctedText}<br>
+                        <small style="color: #888;">⏱ 耗时: ${correctionResult.time_ms}ms | 来源: ${correctionResult.from_cache ? '🔄 缓存' : '🤖 模型'}</small>
+                    </div>
+                `;
+                resultDiv.style.display = 'block';
+                addLog(`✓ 纠正完成: ${changesText}`, 'success');
+            } else {
+                resultDiv.innerHTML = `
+                    <div style="margin-top: 8px; padding: 8px; background: #3a3a0a; border-left: 2px solid #ffff00;">
+                        <strong>纠正结果:</strong> 文本无需修改<br>
+                        <small style="color: #888;">耗时: ${correctionResult.time_ms}ms</small>
+                    </div>
+                `;
+                resultDiv.style.display = 'block';
+                addLog('纠正完成: 文本无需修改', 'info');
+            }
+        }
+        
+        showSuccess(`纠正完成！${changed ? '已发现并修正问题' : '文本无需修改'}`);
+        
+    } catch (error) {
+        addLog(`纠正失败: ${error.message}`, 'error');
+        console.error('[重新纠正失败]', error);
+        showModal('纠正失败', error.message || '网络请求失败');
+    }
+}
+
+// 查看纠正后文本
+async function viewCorrectedText(recordingId) {
+    addLog(`查看纠正后文本: ${recordingId}`, 'info');
+    
+    try {
+        const result = await apiCall(`/recordings/${recordingId}/corrected`);
+        
+        if (result.success) {
+            showModal('纠正后文本', result.corrected_text);
+            addLog('✓ 成功加载纠正后文本', 'success');
+        } else {
+            showModal('提示', '该录音暂无纠正后文本。请先点击“重新纠正”按钮进行纠错。');
+            addLog('⚠ 未找到纠正后文本', 'warning');
+        }
+    } catch (error) {
+        addLog(`✗ 获取纠正文本失败: ${error.message}`, 'error');
+        showModal('错误', '无法加载纠正后文本');
+    }
+}
+
+// 初始化时添加欢迎日志
+addLog('Life Coach 监控面板已加载', 'success');
+addLog('WebSocket 连接中...', 'info');

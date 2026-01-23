@@ -120,7 +120,59 @@ class FileStorage:
         
         print(f"[文件存储] 已保存音频: {audio_path}")
         return str(audio_path)
+    
+    def save_corrected(self, recording_id, corrected_text, changes):
+        """
+        保存纠正后的文本
+        recording_id: 格式为 "2026-01-21/15-30"
+        corrected_text: 纠正后的文本
+        changes: 修改详情
+        """
+        date_str, time_str = recording_id.split('/')
+        date_dir = self.base_path / date_str
+        date_dir.mkdir(parents=True, exist_ok=True)
         
+        # 保存为 .corrected.txt 文件
+        corrected_path = date_dir / f"{time_str}.corrected.txt"
+        
+        # 构建文件内容
+        now = datetime.now()
+        header = f"""=== 文本纠错结果 ===
+纠错时间: {now.strftime('%Y-%m-%d %H:%M:%S')}
+修改详情: {changes}
+---
+"""
+        footer = f"\n---\n保存时间: {now.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        full_content = header + corrected_text + footer
+        
+        # 保存文件
+        corrected_path.write_text(full_content, encoding='utf-8')
+        print(f"[文件存储] 已保存纠正文本: {corrected_path}")
+        return str(corrected_path)
+    
+    def get_corrected(self, recording_id):
+        """
+        获取纠正后的文本
+        recording_id: 格式为 "2026-01-21/15-30"
+        """
+        date_str, time_str = recording_id.split('/')
+        date_dir = self.base_path / date_str
+        corrected_path = date_dir / f"{time_str}.corrected.txt"
+        
+        if not corrected_path.exists():
+            return None
+        
+        try:
+            content = corrected_path.read_text(encoding='utf-8')
+            # 提取纯文本内容
+            content_start = content.find('---\n') + 4
+            content_end = content.rfind('\n---')
+            text_content = content[content_start:content_end].strip() if content_end > content_start else content
+            return text_content
+        except Exception as e:
+            print(f"[文件存储] 读取纠正文本失败: {e}")
+            return None
+
     def query(self, date=None, limit=20):
         """
         查询录音列表

@@ -161,6 +161,55 @@ def delete_recording(recording_id):
     else:
         return jsonify(result), 404
 
+@app.route('/api/recordings/<path:recording_id>/corrected', methods=['POST'])
+def save_corrected_text(recording_id):
+    """保存纠正后的文本"""
+    if not app_manager:
+        return jsonify({"success": False, "error": "服务未初始化"}), 500
+    
+    try:
+        data = request.json
+        corrected_text = data.get('corrected_text')
+        changes = data.get('changes', '')
+        
+        if not corrected_text:
+            return jsonify({"success": False, "error": "缺少corrected_text参数"}), 400
+        
+        # 保存纠正后文本
+        path = app_manager.storage.save_corrected(recording_id, corrected_text, changes)
+        
+        return jsonify({
+            "success": True,
+            "message": "纠正文本已保存",
+            "path": path
+        })
+    except Exception as e:
+        print(f"[API错误] 保存纠正文本失败: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/recordings/<path:recording_id>/corrected', methods=['GET'])
+def get_corrected_text(recording_id):
+    """获取纠正后的文本"""
+    if not app_manager:
+        return jsonify({"success": False, "error": "服务未初始化"}), 500
+    
+    try:
+        corrected_text = app_manager.storage.get_corrected(recording_id)
+        
+        if corrected_text:
+            return jsonify({
+                "success": True,
+                "corrected_text": corrected_text
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": "未找到纠正后文本"
+            }), 404
+    except Exception as e:
+        print(f"[API错误] 获取纠正文本失败: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 # ==================== 文本纠错 API ====================
 
 @app.route('/api/correct_text', methods=['POST'])
@@ -615,13 +664,21 @@ def broadcast_processing_progress(progress, message=""):
     })
     socketio.sleep(0.01)  # 确保消息发送
 
-def broadcast_recording_complete(recording_id, word_count, duration):
+def broadcast_recording_complete(recording_id, word_count, duration, correction_info=None):
     """广播录音完成"""
-    socketio.emit('recording_complete', {
+    payload = {
         'recording_id': recording_id,
         'word_count': word_count,
         'duration': duration
-    })
+    }
+    
+    # 添加纠正信息
+    if correction_info:
+        payload['correction_applied'] = correction_info.get('applied', False)
+        payload['correction_changes'] = correction_info.get('changes', '')
+        payload['correction_time_ms'] = correction_info.get('time_ms', 0)
+    
+    socketio.emit('recording_complete', payload)
 
 def broadcast_error(error_message, error_code):
     """广播错误"""

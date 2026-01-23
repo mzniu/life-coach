@@ -87,7 +87,7 @@
             </div>
             <div class="correction-toggle">
                 <label class="toggle-label">
-                    <input type="checkbox" id="correction-enabled" onchange="toggleCorrection()">
+                    <input type="checkbox" id="correction-enabled" onchange="toggleCorrection()" checked>
                     <span class="toggle-slider"></span>
                     <span class="toggle-text">文本纠错 // TEXT CORRECTION</span>
                 </label>
@@ -163,6 +163,15 @@
                 <button class="btn btn-primary" onclick="closeModal()">确定</button>
             </div>
         </div>
+    </div>
+    
+    <!-- Log Panel -->
+    <div class="log-panel">
+        <div class="log-header">
+            <span class="log-title">实时日志 // LIVE LOG</span>
+            <button class="log-clear-btn" onclick="clearLogs()">清空</button>
+        </div>
+        <div id="log-content" class="log-content"></div>
     </div>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
