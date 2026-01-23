@@ -6,8 +6,8 @@ After=network.target
 Type=simple
 User=cmit
 WorkingDirectory=/home/cmit/LifeCoach
-Environment="PATH=/home/cmit/LifeCoach/venv/bin"
-ExecStart=/home/cmit/LifeCoach/venv/bin/python main.py
+Environment="PATH=/home/cmit/LifeCoach/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/bin/bash /home/cmit/LifeCoach/deploy/start.sh
 Restart=always
 RestartSec=10
 StandardOutput=journal

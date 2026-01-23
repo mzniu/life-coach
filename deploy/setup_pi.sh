@@ -125,7 +125,26 @@ mkdir -p logs
 
 echo "  ✓ 数据目录已创建"
 
+# 配置 USB 麦克风为默认音频设备
+echo ""
+echo "配置音频设备..."
+if arecord -l 2>/dev/null | grep -q "USB"; then
+    echo "  检测到 USB 音频设备"
+    USB_CARD=$(arecord -l 2>/dev/null | grep "USB" | head -1 | sed -n 's/card \([0-9]\).*/\1/p')
+    if [ -n "$USB_CARD" ]; then
+        echo "  配置 USB 麦克风 (card $USB_CARD) 为默认录音设备..."
+        echo "defaults.pcm.card $USB_CARD" > ~/.asoundrc
+        echo "defaults.ctl.card $USB_CARD" >> ~/.asoundrc
+        echo "  ✓ USB 麦克风已设置为默认设备"
+    else
+        echo "  ⚠ 无法确定 USB 音频卡号，跳过配置"
+    fi
+else
+    echo "  未检测到 USB 音频设备，使用系统默认"
+fi
+
 # 设置权限
+chmod +x deploy/start.sh 2>/dev/null || true
 chmod +x main.py 2>/dev/null || true
 
 # 创建完成标记
