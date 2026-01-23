@@ -1,0 +1,17 @@
+[Unit]
+Description=Life Coach Recording Assistant
+After=network.target
+
+[Service]
+Type=simple
+User=cmit
+WorkingDirectory=/home/cmit/LifeCoach
+Environment="PATH=/home/cmit/LifeCoach/venv/bin"
+ExecStart=/home/cmit/LifeCoach/venv/bin/python main.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

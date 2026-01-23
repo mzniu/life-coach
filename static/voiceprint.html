@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>声纹管理 // VOICEPRINT MANAGEMENT</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        /* Modal reuse from style.css - ensure it's loaded */
+        
+        .voiceprint-list {
+            display: grid;
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        
+        .voiceprint-card {
+            background: #000000;
+            border: 2px solid #3B82F6;
+            padding: 1.5rem;
+        }
+        
+        .voiceprint-card h3 {
+            color: #3B82F6;
+            margin: 0 0 0.5rem 0;
+            font-size: 1.25rem;
+        }
+        
+        .voiceprint-meta {
+            color: #9CA3AF;
+            font-size: 0.875rem;
+            margin-bottom: 1rem;
+        }
+        
+        .register-section {
+            background: #000000;
+            border: 4px solid #3B82F6;
+            padding: 2rem;
+            margin-bottom: 3rem;
+        }
+        
+        .register-section h2 {
+            color: #3B82F6;
+            margin: 0 0 1.5rem 0;
+            font-size: 1.5rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-group label {
+            display: block;
+            color: #ffffff;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+        
+        .form-group input {
+            width: 100%;
+            background: #000000;
+            border: 2px solid #3B82F6;
+            color: #ffffff;
+            padding: 0.75rem;
+            font-family: 'Fira Code', monospace;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #60A5FA;
+        }
+        
+        .recording-selector {
+            border: 2px solid #374151;
+            padding: 1rem;
+            max-height: 300px;
+            overflow-y: auto;
+            background: #000000;
+        }
+        
+        .recording-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem;
+            border-bottom: 1px solid #1F2937;
+            cursor: pointer;
+        }
+        
+        .recording-item:hover {
+            background: #111111;
+        }
+        
+        .recording-item input[type="checkbox"] {
+            width: auto;
+            margin-right: 1rem;
+        }
+        
+        .recording-item-info {
+            flex: 1;
+        }
+        
+        .recording-item-info strong {
+            color: #ffffff;
+        }
+        
+        .recording-item-info small {
+            color: #9CA3AF;
+        }
+        
+        .selected-count {
+            color: #3B82F6;
+            font-weight: 600;
+            margin-top: 0.5rem;
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #6B7280;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            background: #065F46;
+            color: #10B981;
+            border: 1px solid #10B981;
+            font-size: 0.75rem;
+            margin-left: 1rem;
+        }
+        
+        .status-badge.error {
+            background: #7F1D1D;
+            color: #EF4444;
+            border-color: #EF4444;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>声纹管理 // VOICEPRINT MANAGEMENT</h1>
+            <div style="display: flex; gap: 1rem;">
+                <a href="/" class="btn btn-secondary">返回监控页面 // BACK</a>
+                <button id="refreshBtn" class="btn btn-secondary">刷新 // REFRESH</button>
+            </div>
+        </header>
+
+        <!-- 声纹注册区域 -->
+        <section class="register-section">
+            <h2>注册新声纹 // REGISTER NEW VOICEPRINT</h2>
+            
+            <div class="form-group">
+                <label for="userName">姓名 // NAME</label>
+                <input type="text" id="userName" placeholder="输入姓名，如：张三">
+            </div>
+            
+            <div class="form-group">
+                <label>选择录音样本（至少2段，建议3-5段）// SELECT AUDIO SAMPLES (2-5 recommended)</label>
+                <div class="recording-selector" id="recordingSelector">
+                    <div class="empty-state">加载中...</div>
+                </div>
+                <div class="selected-count" id="selectedCount">已选择: 0 段录音</div>
+            </div>
+            
+            <div class="btn-group">
+                <button id="registerBtn" class="btn btn-primary">注册声纹 // REGISTER</button>
+                <button id="clearBtn" class="btn btn-secondary">清空选择 // CLEAR</button>
+            </div>
+        </section>
+
+        <!-- 已注册声纹列表 -->
+        <section>
+            <h2 style="color: #3B82F6; margin-bottom: 1rem;">已注册声纹 // REGISTERED VOICEPRINTS</h2>
+            <div class="voiceprint-list" id="voiceprintList">
+                <div class="empty-state">加载中...</div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Modal for messages (shared structure) -->
+    <div id="messageModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeModal()">&times;</span>
+            <div id="modalTitle" class="modal-title"></div>
+            <div id="modalBody" class="modal-body"></div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="closeModal()">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script>
+        const API_BASE = window.location.origin;
+        
+        let recordings = [];
+        let selectedRecordings = new Set();
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            loadRecordings();
+            loadVoiceprints();
+            
+            document.getElementById('refreshBtn').addEventListener('click', () => {
+                loadRecordings();
+                loadVoiceprints();
+            });
+            
+            document.getElementById('registerBtn').addEventListener('click', registerVoiceprint);
+            document.getElementById('clearBtn').addEventListener('click', clearSelection);
+        });
+        
+        // 加载录音列表
+        async function loadRecordings() {
+            try {
+                const response = await fetch(`${API_BASE}/api/recordings?limit=50`);
+                const data = await response.json();
+                
+                if (data.success && data.recordings) {
+                    recordings = data.recordings;
+                    renderRecordingSelector();
+                } else {
+                    document.getElementById('recordingSelector').innerHTML = 
+                        '<div class="empty-state">暂无录音</div>';
+                }
+            } catch (error) {
+                console.error('加载录音失败:', error);
+                document.getElementById('recordingSelector').innerHTML = 
+                    '<div class="empty-state">加载失败</div>';
+            }
+        }
+        
+        // 渲染录音选择器
+        function renderRecordingSelector() {
+            const container = document.getElementById('recordingSelector');
+            
+            if (recordings.length === 0) {
+                container.innerHTML = '<div class="empty-state">暂无录音</div>';
+                return;
+            }
+            
+            container.innerHTML = recordings.map(rec => `
+                <div class="recording-item" data-id="${rec.id}">
+                    <input type="checkbox" id="rec_${rec.id}" value="${rec.id}" 
+                           ${selectedRecordings.has(rec.id) ? 'checked' : ''}>
+                    <div class="recording-item-info">
+                        <strong>${rec.id}</strong><br>
+                        <small>${rec.duration.toFixed(1)}秒 | ${rec.word_count} 字</small>
+                    </div>
+                </div>
+            `).join('');
+            
+            // 添加点击事件
+            container.querySelectorAll('.recording-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    if (e.target.type !== 'checkbox') {
+                        const checkbox = item.querySelector('input[type="checkbox"]');
+                        checkbox.checked = !checkbox.checked;
+                    }
+                    toggleRecording(item.dataset.id);
+                });
+            });
+            
+            updateSelectedCount();
+        }
+        
+        // 切换录音选择
+        function toggleRecording(recId) {
+            if (selectedRecordings.has(recId)) {
+                selectedRecordings.delete(recId);
+            } else {
+                selectedRecordings.add(recId);
+            }
+            updateSelectedCount();
+        }
+        
+        // 更新选择计数
+        function updateSelectedCount() {
+            document.getElementById('selectedCount').textContent = 
+                `已选择: ${selectedRecordings.size} 段录音`;
+        }
+        
+        // 清空选择
+        function clearSelection() {
+            selectedRecordings.clear();
+            renderRecordingSelector();
+        }
+        
+        // 注册声纹
+        async function registerVoiceprint() {
+            const userName = document.getElementById('userName').value.trim();
+            
+            if (!userName) {
+                showModal('提示', '请输入姓名');
+                return;
+            }
+            
+            if (selectedFiles.length < 2) {
+                showModal('提示', '请至少选择2段录音进行声纹注册');
+                return;
+            }
+            
+            const registerBtn = document.getElementById('registerBtn');
+            registerBtn.disabled = true;
+            registerBtn.textContent = '注册中...';
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/voiceprint/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        user_name: userName,
+                        recording_ids: Array.from(selectedRecordings)
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showModal('注册成功', `用户: ${userName}\n样本数: ${result.embedding_count}`);
+                    document.getElementById('userName').value = '';
+                    clearSelection();
+                    loadVoiceprints();
+                } else {
+                    showModal('注册失败', result.message);
+                }
+            } catch (error) {
+                console.error('注册声纹失败:', error);
+                showModal('注册失败', '请查看控制台获取详细信息');
+            } finally {
+                registerBtn.disabled = false;
+                registerBtn.textContent = '注册声纹 // REGISTER';
+            }
+        }
+        
+        // 加载已注册声纹
+        async function loadVoiceprints() {
+            try {
+                const response = await fetch(`${API_BASE}/api/voiceprint/status`);
+                const data = await response.json();
+                
+                if (data.success && data.voiceprints) {
+                    renderVoiceprints(data.voiceprints, data.status);
+                } else {
+                    document.getElementById('voiceprintList').innerHTML = 
+                        '<div class="empty-state">声纹识别功能不可用</div>';
+                }
+            } catch (error) {
+                console.error('加载声纹失败:', error);
+                document.getElementById('voiceprintList').innerHTML = 
+                    '<div class="empty-state">加载失败</div>';
+            }
+        }
+        
+        // 渲染声纹列表
+        function renderVoiceprints(voiceprints, status) {
+            const container = document.getElementById('voiceprintList');
+            
+            if (voiceprints.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p>暂无已注册声纹</p>
+                        <p style="font-size: 0.875rem; margin-top: 0.5rem;">
+                            ${status.available ? '使用上方表单注册第一个声纹' : '声纹识别功能未启用'}
+                        </p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = voiceprints.map(vp => `
+                <div class="voiceprint-card">
+                    <h3>${vp.name}</h3>
+                    <div class="voiceprint-meta">
+                        样本数量: ${vp.sample_count} 段录音
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-secondary" onclick="testVoiceprint('${vp.name}')">
+                            测试识别 // TEST
+                        </button>
+                        <button class="btn btn-danger" onclick="deleteVoiceprint('${vp.name}')">
+                            删除 // DELETE
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // 测试声纹识别
+        async function testVoiceprint(userName) {
+            if (recordings.length === 0) {
+                showModal('提示', '暂无录音可测试');
+                return;
+            }
+            
+            // 选择最新的录音进行测试
+            const testRecording = recordings[0];
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/voiceprint/identify`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        recording_id: testRecording.id
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const result = data.result;
+                    showModal(
+                        '识别结果',
+                        `说话人: ${result.speaker}\n置信度: ${(result.confidence * 100).toFixed(1)}%\n是否已注册: ${result.is_registered ? '是' : '否'}`
+                    );
+                } else {
+                    showModal('识别失败', '未能识别出注册用户');
+                }
+            } catch (error) {
+                console.error('测试声纹失败:', error);
+                showModal('测试失败', '请查看控制台获取详细信息');
+            }
+        }
+        
+        // 删除声纹
+        async function deleteVoiceprint(userName) {
+            if (!confirm(`确定要删除声纹"${userName}"吗？此操作不可恢复。`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/voiceprint/delete`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        user_name: userName
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showModal('成功', '声纹已删除');
+                    loadVoiceprints();
+                } else {
+                    showModal('删除失败', result.message);
+                }
+            } catch (error) {
+                console.error('删除声纹失败:', error);
+                showModal('删除失败', '请查看控制台获取详细信息');
+            }
+        }
+        
+        // Modal functions (shared with app.js)
+        function showModal(title, body) {
+            const modal = document.getElementById('messageModal');
+            const modalTitle = document.getElementById('modalTitle');
+            const modalBody = document.getElementById('modalBody');
+            
+            if (!modal) {
+                // Fallback to alert if modal not found
+                alert(title + '\\n\\n' + body);
+                return;
+            }
+            
+            modalTitle.textContent = title;
+            modalBody.textContent = body;
+            modal.style.display = 'block';
+            
+            modal.onclick = function(event) {
+                if (event.target === modal) {
+                    closeModal();
+                }
+            }
+        }
+        
+        function closeModal() {
+            const modal = document.getElementById('messageModal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

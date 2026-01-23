@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 虚拟环境
+venv/
+env/
+ENV/
+
+# 运行时数据
+recordings/
+voiceprints/
+logs/
+*.log
+
+# Resilio Sync 数据
+.sync/
+*.!sync
+.SyncID
+.SyncIgnore
+.SyncArchive
+
+# 测试
+tests/test_recordings/
+.pytest_cache/
+htmlcov/
+.coverage
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# 部署配置（包含敏感信息）
+deploy/config.ps1
+.env
+
+# 模型文件（较大，不提交）
+models/
+*.bin
+*.gguf
+
+# 临时文件
+*.tmp
+*.bak

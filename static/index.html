@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Life Coach 监控面板</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="header-title">
+                    <svg class="header-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <path d="M9 12l2 2 4-4"></path>
+                    </svg>
+                    <h1 class="title">LIFE COACH</h1>
+                </div>
+                <p class="subtitle">实时监控终端 // MONITORING TERMINAL</p>
+            </div>
+        </header>
+
+        <!-- Status Grid -->
+        <section class="status-section">
+            <div class="status-card main-status">
+                <div class="card-label">系统状态 // SYSTEM STATUS</div>
+                <div class="status-display">
+                    <div id="status-icon" class="status-icon"></div>
+                    <span id="status-text" class="status-text">IDLE</span>
+                </div>
+                <div id="status-detail" class="status-detail">按 K1 键或点击开始录音</div>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">录音时长</div>
+                    <div id="recording-duration" class="metric-value">00:00</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">已转写字数</div>
+                    <div id="word-count" class="metric-value">0</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">今日录音</div>
+                    <div id="today-count" class="metric-value">0</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">存储剩余</div>
+                    <div id="storage-left" class="metric-value">-- GB</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Control Panel -->
+        <section class="control-section">
+            <button id="btn-start" class="btn btn-primary" onclick="startRecording()">
+                <svg class="btn-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <circle cx="8" cy="8" r="6"></circle>
+                </svg>
+                <span>开始录音 // START</span>
+            </button>
+            <button id="btn-stop" class="btn btn-secondary" onclick="stopRecording()" disabled>
+                <svg class="btn-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <rect x="4" y="4" width="8" height="8"></rect>
+                </svg>
+                <span>停止录音 // STOP</span>
+            </button>
+            <button id="btn-cancel" class="btn btn-danger" onclick="cancelRecording()" disabled>
+                <svg class="btn-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4l8 8M12 4l-8 8"></path>
+                </svg>
+                <span>取消 // CANCEL</span>
+            </button>
+            <a href="/static/voiceprint.html" class="btn btn-secondary" style="display: inline-flex; align-items: center; text-decoration: none;">
+                <svg class="btn-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="8" cy="8" r="3"></circle>
+                    <path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.5 3.5l1.5 1.5M11 11l1.5 1.5M12.5 3.5L11 5M5 11L3.5 12.5"></path>
+                </svg>
+                <span>声纹管理 // VOICEPRINT</span>
+            </a>
+        </section>
+
+        <!-- Progress Bar -->
+        <section id="progress-section" class="progress-section" style="display: none;">
+            <div class="progress-container">
+                <div class="progress-label">转写进度 // TRANSCRIPTION</div>
+                <div class="progress-bar-wrapper">
+                    <div id="progress-bar" class="progress-bar"></div>
+                </div>
+                <div id="progress-text" class="progress-text">0%</div>
+                <div id="transcribe-content" class="transcribe-content"></div>
+            </div>
+        </section>
+
+        <!-- Recordings List -->
+        <section class="recordings-section">
+            <div class="section-header">
+                <h2 class="section-title">最近录音 // RECENT RECORDINGS</h2>
+                <button class="btn btn-small" onclick="refreshRecordings()">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 8A6 6 0 1 1 8 2"></path>
+                        <path d="M14 2v6h-6"></path>
+                    </svg>
+                    刷新
+                </button>
+            </div>
+            <div id="recordings-list" class="recordings-list">
+                <div class="loading">加载中...</div>
+            </div>
+        </section>
+
+        <!-- Hardware Status -->
+        <section class="hardware-section">
+            <h3 class="section-title">硬件状态 // HARDWARE STATUS</h3>
+            <div class="hardware-grid">
+                <div class="hardware-item">
+                    <span class="hw-label">麦克风 // MIC</span>
+                    <span id="hw-mic" class="hw-status">检测中...</span>
+                </div>
+                <div class="hardware-item">
+                    <span class="hw-label">左OLED // LEFT</span>
+                    <span id="hw-oled-left" class="hw-status">检测中...</span>
+                </div>
+                <div class="hardware-item">
+                    <span class="hw-label">右OLED // RIGHT</span>
+                    <span id="hw-oled-right" class="hw-status">检测中...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-status">
+                <span class="footer-label">连接状态:</span>
+                <span id="ws-status" class="ws-status connecting">连接中...</span>
+            </div>
+            <p class="footer-note">[ K1: 录音 ] [ K4: 退出 ]</p>
+        </footer>
+    </div>
+
+    <!-- Modal for messages -->
+    <div id="messageModal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeModal()">&times;</span>
+            <div id="modalTitle" class="modal-title"></div>
+            <div id="modalBody" class="modal-body"></div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="closeModal()">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="/static/app.js"></script>
+</body>
+</html>
