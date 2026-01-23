@@ -76,9 +76,22 @@ fi
 
 echo "  ✓ Python 环境正常"
 
-# 3. 检查必要目录
+# 3. 加载环境变量
 echo ""
-echo "[3/3] 检查数据目录..."
+echo "[3/4] 加载环境配置..."
+if [ -f ".env" ]; then
+    # 导出.env中的环境变量
+    set -a
+    source .env
+    set +a
+    echo "  ✓ 环境变量已加载"
+else
+    echo "  → 未找到 .env 文件，使用默认配置"
+fi
+
+# 4. 检查必要目录
+echo ""
+echo "[4/4] 检查数据目录..."
 mkdir -p recordings voiceprints models logs
 echo "  ✓ 数据目录已就绪"
 
