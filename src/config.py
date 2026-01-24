@@ -97,6 +97,24 @@ TEXT_CORRECTION_TEMPERATURE = float(os.getenv('TEXT_CORRECTION_TEMPERATURE', '0.
 # 推理超时时间（秒）
 TEXT_CORRECTION_TIMEOUT = int(os.getenv('TEXT_CORRECTION_TIMEOUT', '15'))
 
+# ==================== 实时转录配置 ====================
+# 是否启用实时转录功能（录音时实时显示识别文本）
+REALTIME_TRANSCRIBE_ENABLED = os.getenv('REALTIME_TRANSCRIBE_ENABLED', 'true').lower() == 'true'
+
+# VAD（语音活动检测）参数
+REALTIME_SILENCE_THRESHOLD = int(os.getenv('REALTIME_SILENCE_THRESHOLD', '500'))  # 静音阈值（音频能量）
+REALTIME_MIN_SILENCE_DURATION = float(os.getenv('REALTIME_MIN_SILENCE_DURATION', '0.8'))  # 静音触发时长（秒）
+REALTIME_MAX_SEGMENT_DURATION = float(os.getenv('REALTIME_MAX_SEGMENT_DURATION', '10.0'))  # 最大分段时长（秒）
+REALTIME_MIN_SEGMENT_DURATION = float(os.getenv('REALTIME_MIN_SEGMENT_DURATION', '0.5'))  # 最小分段时长（秒）
+
+# 实时转录队列大小（避免内存溢出）
+REALTIME_QUEUE_MAX_SIZE = int(os.getenv('REALTIME_QUEUE_MAX_SIZE', '10'))
+
+# 实时转录性能优化
+REALTIME_BEAM_SIZE = int(os.getenv('REALTIME_BEAM_SIZE', '3'))  # 降低beam size加速转录（准确度略降）
+
+print(f"[配置] 实时转录: {'启用' if REALTIME_TRANSCRIBE_ENABLED else '禁用'}, 静音阈值={REALTIME_SILENCE_THRESHOLD}, 触发时长={REALTIME_MIN_SILENCE_DURATION}s")
+
 # ==================== 显示参数 ====================
 # 中文字体路径（需安装 fonts-wqy-zenhei）
 FONT_PATH = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"

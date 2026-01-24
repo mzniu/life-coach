@@ -5,6 +5,26 @@
 import time
 import threading
 import numpy as np
+import sys
+import os
+
+# 导入配置参数
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from src.config import (
+        REALTIME_SILENCE_THRESHOLD,
+        REALTIME_MIN_SILENCE_DURATION,
+        REALTIME_MAX_SEGMENT_DURATION,
+        REALTIME_MIN_SEGMENT_DURATION
+    )
+    USE_CONFIG = True
+except ImportError:
+    # 默认值
+    REALTIME_SILENCE_THRESHOLD = 500
+    REALTIME_MIN_SILENCE_DURATION = 0.8
+    REALTIME_MAX_SEGMENT_DURATION = 10.0
+    REALTIME_MIN_SEGMENT_DURATION = 0.5
+    USE_CONFIG = False
 
 try:
     import sounddevice as sd
@@ -36,16 +56,16 @@ class AudioRecorder:
         self.audio_data = []
         self.recording_thread = None
         
-        # 实时转录支持
+        # 实时转录支持（使用配置参数）
         self.realtime_transcribe = realtime_transcribe
         self.segment_callback = segment_callback
         self.current_segment = []  # 当前累积的音频段
         self.segment_start_time = None  # 分段开始时间
         self.last_audio_time = None  # 最后一次音频时间
-        self.silence_threshold = 500  # 静音阈值（幅度）
-        self.min_silence_duration = 0.8  # 静音触发时长（秒）
-        self.max_segment_duration = 10.0  # 最大分段时长（秒）
-        self.min_segment_duration = 0.5  # 最小分段时长（秒）
+        self.silence_threshold = REALTIME_SILENCE_THRESHOLD  # 从配置读取
+        self.min_silence_duration = REALTIME_MIN_SILENCE_DURATION  # 从配置读取
+        self.max_segment_duration = REALTIME_MAX_SEGMENT_DURATION  # 从配置读取
+        self.min_segment_duration = REALTIME_MIN_SEGMENT_DURATION  # 从配置读取
         self.segment_count = 0
         
         if REAL_AUDIO:

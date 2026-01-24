@@ -47,10 +47,19 @@ socket.on('recording_complete', (data) => {
     refreshRecordings();
     refreshSystemStatus();
     
+    // 隐藏实时转录区域
+    hideRealtimeTranscript();
+    
     // 如果有纠正信息，在控制台输出
     if (data.correction_applied) {
         console.log('[文本纠错] 已应用', data.correction_changes);
     }
+});
+
+// 实时转录事件
+socket.on('realtime_transcript', (data) => {
+    console.log('[实时转录]', `第${data.segment_index}段:`, data.segment);
+    updateRealtimeTranscript(data);
 });
 
 socket.on('error_occurred', (data) => {
@@ -113,6 +122,9 @@ async function startRecording() {
         document.getElementById('btn-stop').disabled = false;
         document.getElementById('btn-cancel').disabled = false;
         
+        // 显示实时转录区域
+        showRealtimeTranscript();
+        
         // 开始计时
         recordingStartTime = Date.now();
         startTimer();
@@ -164,6 +176,9 @@ async function cancelRecording() {
         resetControls();
         stopTimer();
         hideProgressBar();
+        
+        // 隐藏实时转录区域
+        hideRealtimeTranscript();
         
     } catch (error) {
         console.error('[取消失败]', error);
@@ -771,6 +786,64 @@ async function viewCorrectedText(recordingId) {
         addLog(`✗ 获取纠正文本失败: ${error.message}`, 'error');
         showModal('错误', '无法加载纠正后文本');
     }
+}
+
+// ==================== 实时转录功能 ====================
+
+// 显示实时转录区域
+function showRealtimeTranscript() {
+    const container = document.getElementById('realtime-transcript-container');
+    const transcript = document.getElementById('realtime-transcript');
+    
+    if (container && transcript) {
+        // 清空内容
+        transcript.innerHTML = '';
+        // 显示容器
+        container.style.display = 'block';
+        console.log('[实时转录] 显示转录区域');
+    }
+}
+
+// 隐藏实时转录区域
+function hideRealtimeTranscript() {
+    const container = document.getElementById('realtime-transcript-container');
+    if (container) {
+        container.style.display = 'none';
+        console.log('[实时转录] 隐藏转录区域');
+    }
+}
+
+// 更新实时转录内容
+function updateRealtimeTranscript(data) {
+    const transcript = document.getElementById('realtime-transcript');
+    if (!transcript) return;
+    
+    // 创建新片段span
+    const segmentSpan = document.createElement('span');
+    segmentSpan.textContent = data.segment;
+    segmentSpan.className = 'new-segment';
+    
+    // 添加到容器
+    transcript.appendChild(segmentSpan);
+    
+    // 0.5秒后移除高亮
+    setTimeout(() => {
+        segmentSpan.className = 'new-segment fade-out';
+        setTimeout(() => {
+            segmentSpan.className = '';
+        }, 500);
+    }, 500);
+    
+    // 自动滚动到底部
+    transcript.scrollTop = transcript.scrollHeight;
+    
+    // 更新字数显示（使用累积文本）
+    if (data.full_text) {
+        const wordCount = data.full_text.length;
+        document.getElementById('word-count').textContent = wordCount;
+    }
+    
+    console.log(`[实时转录] 第${data.segment_index}段: ${data.segment} (耗时${data.transcribe_time.toFixed(2)}s)`);
 }
 
 // 初始化时添加欢迎日志
