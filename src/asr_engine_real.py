@@ -59,15 +59,13 @@ class ASREngine:
         if TEXT_CORRECTION_ENABLED:
             try:
                 from src.text_corrector import get_text_corrector
-                self.text_corrector = get_text_corrector(
-                    model_path=TEXT_CORRECTION_MODEL,
-                    max_tokens=TEXT_CORRECTION_MAX_TOKENS,
-                    temperature=TEXT_CORRECTION_TEMPERATURE,
-                    timeout=TEXT_CORRECTION_TIMEOUT
-                )
-                print("[ASR] 文本纠错功能已启用")
+                # 使用新的双引擎架构，自动从环境变量读取引擎类型
+                self.text_corrector = get_text_corrector()
+                print(f"[ASR] 文本纠错功能已启用，引擎: {os.getenv('TEXT_CORRECTOR_ENGINE', 'macro-correct')}")
             except Exception as e:
                 print(f"[ASR警告] 文本纠错初始化失败: {e}, 将跳过纠错")
+                import traceback
+                traceback.print_exc()
                 self.text_corrector = None
         else:
             print("[ASR] 文本纠错功能未启用")
@@ -76,17 +74,17 @@ class ASREngine:
             print(f"[ASR] 加载 Whisper 模型: {self.model_size} ({self.device}, {self.compute_type})")
             print("[ASR] 首次加载可能需要下载模型，请稍候...")
             
+            # 设置使用国内镜像
+            os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+            
             # 检查本地 models 目录
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             local_models_dir = os.path.join(project_root, "models")
             download_root = None
             
-            local_files_only = False
             if os.path.exists(local_models_dir):
                 print(f"[ASR] 检测到本地模型目录: {local_models_dir}")
                 download_root = local_models_dir
-                local_files_only = True # 强制仅使用本地文件，防止联网卡死
-                os.environ["HF_HUB_OFFLINE"] = "1" # 双重保险
             
             try:
                 self.model = WhisperModel(
@@ -94,7 +92,7 @@ class ASREngine:
                     device=self.device, 
                     compute_type=self.compute_type,
                     download_root=download_root,
-                    local_files_only=local_files_only
+                    local_files_only=False  # 允许使用缓存的模型
                 )
                 print("[ASR] Whisper 模型加载完成")
             except Exception as e:
@@ -249,8 +247,9 @@ class ASREngine:
     
     def transcribe_file(self, audio_path):
         """批量转写音频文件"""
+        import sys
         if REAL_ASR and self.model:
-            print(f"[ASR] 转写文件: {audio_path}")
+            print(f"[ASR] 转写文件: {audio_path}", file=sys.stderr, flush=True)
             try:
                 segments, info = self.model.transcribe(
                     audio_path, 
@@ -258,12 +257,14 @@ class ASREngine:
                     initial_prompt="以下是普通话的句子，包含标点符号："
                 )
                 result = "".join([seg.text for seg in segments])
-                print(f"[ASR] 文件转写完成: {len(result)} 字符")
-                return result
+                print(f"[ASR] 文件转写完成: {len(result)} 字符", file=sys.stderr, flush=True)
+                return {"text": result, "segments": len(list(segments))}
             except Exception as e:
-                print(f"[ASR错误] 文件转写失败: {e}")
-                return f"[转写错误: {e}]"
+                print(f"[ASR错误] 文件转写失败: {e}", file=sys.stderr, flush=True)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+                return {"text": f"[转写错误: {e}]", "error": str(e)}
         else:
-            print(f"[模拟ASR] 模拟转写文件: {audio_path}")
+            print(f"[模拟ASR] 模拟转写文件: {audio_path}", file=sys.stderr, flush=True)
             time.sleep(1)
-            return "这是模拟的文件转写结果。请安装 faster-whisper 以启用真实转写。"
+            return {"text": "这是模拟的文件转写结果。请安装 faster-whisper 以启用真实转写。"}

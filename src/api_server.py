@@ -210,6 +210,72 @@ def get_corrected_text(recording_id):
         print(f"[API错误] 获取纠正文本失败: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route('/api/recordings/<path:recording_id>/retranscribe', methods=['POST'])
+def retranscribe_recording(recording_id):
+    """重新识别录音文件"""
+    if not app_manager:
+        return jsonify({"success": False, "error": "服务未初始化"}), 500
+    
+    try:
+        import sys
+        print(f"[重新识别] 开始重新识别: {recording_id}", file=sys.stderr, flush=True)
+        
+        # 获取录音详情
+        recording = app_manager.storage.get(recording_id)
+        if not recording:
+            return jsonify({"success": False, "error": "录音不存在"}), 404
+        
+        # 构建音频文件路径
+        date_str, time_str = recording_id.split('/')
+        audio_path = app_manager.storage.base_path / date_str / f"{time_str}.wav"
+        if not audio_path.exists():
+            return jsonify({"success": False, "error": "音频文件不存在"}), 404
+        
+        audio_path_str = str(audio_path)
+        print(f"[重新识别] 音频文件: {audio_path_str}", file=sys.stderr, flush=True)
+        
+        # 使用ASR引擎重新识别
+        if not app_manager.asr:
+            return jsonify({"success": False, "error": "ASR引擎未初始化"}), 500
+        
+        # 转写音频文件
+        import time
+        start_time = time.time()
+        print(f"[重新识别] 调用ASR引擎...", file=sys.stderr, flush=True)
+        
+        try:
+            result = app_manager.asr.transcribe_file(audio_path_str)
+            elapsed = time.time() - start_time
+            print(f"[重新识别] ASR返回结果: {result}", file=sys.stderr, flush=True)
+        except Exception as e:
+            print(f"[重新识别错误] ASR调用异常: {e}", file=sys.stderr, flush=True)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            return jsonify({"success": False, "error": f"ASR引擎异常: {e}"}), 500
+        
+        if not result or 'text' not in result:
+            print(f"[重新识别错误] 返回结果格式错误: {result}", file=sys.stderr, flush=True)
+            return jsonify({"success": False, "error": "识别结果格式错误"}), 500
+        
+        new_text = result['text'].strip()
+        print(f"[重新识别] 识别完成，耗时: {elapsed:.2f}秒，文本长度: {len(new_text)}", file=sys.stderr, flush=True)
+        
+        # 保存新的识别结果（更新original_content）
+        app_manager.storage.update_transcription(recording_id, new_text)
+        
+        return jsonify({
+            "success": True,
+            "text": new_text,
+            "time_ms": int(elapsed * 1000),
+            "message": "重新识别完成"
+        })
+        
+    except Exception as e:
+        import traceback
+        print(f"[重新识别错误] {e}", file=sys.stderr, flush=True)
+        print(traceback.format_exc(), file=sys.stderr, flush=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
 # ==================== 文本纠错 API ====================
 
 @app.route('/api/correct_text', methods=['POST'])
@@ -286,7 +352,37 @@ def correct_text():
             }), 503
         
         # 执行纠错
+        import sys
+        print(f"[纠错API] 开始纠错，输入长度: {len(text)} 字符", file=sys.stderr, flush=True)
+        print(f"[纠错API] 输入文本: {text[:100]}..." if len(text) > 100 else f"[纠错API] 输入文本: {text}", file=sys.stderr, flush=True)
+        
         result = corrector.correct(text)
+        
+        # 详细日志输出
+        if result.get('success'):
+            corrected = result.get('corrected', '')
+            changed = result.get('changed', False)
+            changes = result.get('changes', [])
+            time_ms = result.get('time_ms', 0)
+            from_cache = result.get('from_cache', False)
+            
+            print(f"[纠错API] 纠错完成: 耗时={time_ms}ms, 来源={'缓存' if from_cache else '模型'}, 修改={'是' if changed else '否'}", file=sys.stderr, flush=True)
+            print(f"[纠错API] 输出文本: {corrected[:100]}..." if len(corrected) > 100 else f"[纠错API] 输出文本: {corrected}", file=sys.stderr, flush=True)
+            
+            if changed and isinstance(changes, list):
+                print(f"[纠错API] 修改详情: 共 {len(changes)} 处", file=sys.stderr, flush=True)
+                for i, change in enumerate(changes[:5], 1):  # 只打印前5处修改
+                    if isinstance(change, dict):
+                        pos = change.get('position', '?')
+                        old = change.get('original', '?')
+                        new = change.get('corrected', '?')
+                        confidence = change.get('confidence', 0)
+                        print(f"[纠错API]   {i}. 位置{pos}: '{old}' → '{new}' (置信度: {confidence:.4f})", file=sys.stderr, flush=True)
+                if len(changes) > 5:
+                    print(f"[纠错API]   ... 还有 {len(changes) - 5} 处修改", file=sys.stderr, flush=True)
+        else:
+            error = result.get('error', '未知错误')
+            print(f"[纠错API] 纠错失败: {error}", file=sys.stderr, flush=True)
         
         return jsonify(result)
         
@@ -679,6 +775,18 @@ def broadcast_recording_complete(recording_id, word_count, duration, correction_
         payload['correction_time_ms'] = correction_info.get('time_ms', 0)
     
     socketio.emit('recording_complete', payload)
+
+def broadcast_realtime_transcript(segment, full_text, segment_index, transcribe_time=0, total_segments=0):
+    """广播实时转录结果"""
+    socketio.emit('realtime_transcript', {
+        'segment': segment,              # 本次识别的片段
+        'full_text': full_text,           # 所有片段拼接的完整文本
+        'segment_index': segment_index,   # 片段序号
+        'transcribe_time': transcribe_time,  # 转录耗时（秒）
+        'total_segments': total_segments, # 已转录总段数
+        'is_final': False                 # 是否为最终结果（录音结束）
+    })
+    print(f"[WebSocket] 广播实时转录: 第{segment_index}段, {len(segment)}字")
 
 def broadcast_error(error_message, error_code):
     """广播错误"""

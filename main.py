@@ -31,6 +31,8 @@ class LifeCoachApp:
         self.asr = None
         self.buttons = None
         self.storage = None
+        self.realtime_transcriber = None  # 实时转录管理器
+        self.accumulated_text = ""  # 实时累积的文本
         
         print("[主程序] Life Coach 初始化...")
         self._init_modules()
@@ -44,13 +46,24 @@ class LifeCoachApp:
             from src.asr_engine_real import ASREngine
             from src.file_storage import FileStorage
             from src.voiceprint_engine import VoiceprintEngine
+            from src.realtime_transcriber import RealtimeTranscriber
             
             self.display = DisplayController()
             self.buttons = ButtonHandler()
-            self.recorder = AudioRecorder()
+            # AudioRecorder暂不启用实时分段，在start_recording时按需启用
+            self.recorder = AudioRecorder(
+                realtime_transcribe=False,  # 默认关闭，按需开启
+                segment_callback=self._on_audio_segment
+            )
             self.asr = ASREngine()
             self.storage = FileStorage()
             self.voiceprint = VoiceprintEngine()
+            
+            # 创建实时转录器（不立即启动）
+            self.realtime_transcriber = RealtimeTranscriber(
+                asr_engine=self.asr,
+                callback=self._on_segment_transcribed
+            )
             
             print("[主程序] 所有模块初始化完成")
             
@@ -102,6 +115,16 @@ class LifeCoachApp:
             now = datetime.now()
             self.recording_id = now.strftime("%Y-%m-%d/%H-%M")
             
+            # 启用实时转录（根据配置）
+            realtime_enabled = getattr(sys.modules['src.config'], 'REALTIME_TRANSCRIBE_ENABLED', True)
+            if realtime_enabled:
+                print("[实时转录] 启用实时转录模式")
+                self.recorder.realtime_transcribe = True
+                self.realtime_transcriber.start()
+                self.accumulated_text = ""
+            else:
+                self.recorder.realtime_transcribe = False
+            
             self.recorder.start()
             
             if self.display:
@@ -145,6 +168,11 @@ class LifeCoachApp:
         
         try:
             audio_data = self.recorder.stop()
+            
+            # 停止实时转录器
+            if self.realtime_transcriber and self.realtime_transcriber.is_running:
+                print("[实时转录] 停止实时转录器...")
+                self.realtime_transcriber.stop()
             
             if self.display:
                 self.display.show_status(AppState.PROCESSING, "转写中...")
@@ -372,9 +400,40 @@ class LifeCoachApp:
             if self.display:
                 self.display.show_status(AppState.IDLE, "就绪")
     
+    def _on_audio_segment(self, audio_segment, metadata):
+        """音频分段回调 - 将音频段添加到转录队列"""
+        if self.realtime_transcriber and self.realtime_transcriber.is_running:
+            self.realtime_transcriber.add_segment(audio_segment, metadata)
+    
+    def _on_segment_transcribed(self, text, metadata):
+        """转录结果回调 - 通过WebSocket推送给前端"""
+        try:
+            self.accumulated_text += text
+            self.word_count = len(self.accumulated_text)
+            
+            # 通过WebSocket推送实时转录结果
+            api_server.broadcast_realtime_transcript(
+                segment=text,
+                full_text=self.accumulated_text,
+                segment_index=metadata.get('segment_index', 0),
+                transcribe_time=metadata.get('transcribe_time', 0),
+                total_segments=metadata.get('total_segments', 0)
+            )
+            
+            print(f"[实时转录] 推送第 {metadata.get('segment_index')} 段: {text[:50]}...")
+            
+        except Exception as e:
+            print(f"[实时转录错误] 回调异常: {e}")
+            import traceback
+            traceback.print_exc()
+    
     def shutdown(self):
         """关闭程序"""
         print("[主程序] 准备关闭...")
+        
+        # 停止实时转录器
+        if self.realtime_transcriber:
+            self.realtime_transcriber.stop()
         
         if self.recorder:
             self.recorder.cleanup()

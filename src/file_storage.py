@@ -172,6 +172,53 @@ class FileStorage:
         except Exception as e:
             print(f"[文件存储] 读取纠正文本失败: {e}")
             return None
+    
+    def update_transcription(self, recording_id, new_text):
+        """
+        更新录音的转写文本（重新识别后使用）
+        recording_id: 格式为 "2026-01-21/15-30"
+        new_text: 新的转写文本
+        """
+        date_str, time_str = recording_id.split('/')
+        date_dir = self.base_path / date_str
+        file_path = date_dir / f"{time_str}.txt"
+        
+        if not file_path.exists():
+            print(f"[文件存储] 录音文件不存在: {file_path}")
+            return False
+        
+        try:
+            # 读取现有文件获取元数据
+            content = file_path.read_text(encoding='utf-8')
+            
+            # 提取头部元数据（保留原有的录音时间等信息）
+            header_end = content.find('---\n')
+            if header_end > 0:
+                header = content[:header_end + 4]
+            else:
+                # 如果没有找到分隔符，保留前3行
+                lines = content.split('\n', 3)
+                header = '\n'.join(lines[:3]) + '\n---\n'
+            
+            # 构建新内容
+            now = datetime.now()
+            footer = f"\n---\n更新时间: {now.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            new_content = header + new_text + footer
+            
+            # 保存文件
+            file_path.write_text(new_content, encoding='utf-8')
+            print(f"[文件存储] 已更新转写文本: {file_path}")
+            
+            # 删除旧的纠正文本（如果存在）
+            corrected_path = date_dir / f"{time_str}.corrected.txt"
+            if corrected_path.exists():
+                corrected_path.unlink()
+                print(f"[文件存储] 已删除旧的纠正文本: {corrected_path}")
+            
+            return True
+        except Exception as e:
+            print(f"[文件存储] 更新转写文本失败: {e}")
+            return False
 
     def query(self, date=None, limit=20):
         """
@@ -204,6 +251,10 @@ class FileStorage:
         recordings = []
         
         for file_path in directory.glob("*.txt"):
+            # 跳过纠正后的文本文件（.corrected.txt）
+            if '.corrected' in file_path.stem:
+                continue
+            
             try:
                 # 读取文件内容
                 content = file_path.read_text(encoding='utf-8')
@@ -223,14 +274,16 @@ class FileStorage:
                     elif line.startswith('文字长度:'):
                         word_count = int(line.split(':')[1].replace('字', '').strip())
                 
-                # 提取内容预览（前50字）
+                # 提取内容预览（前50字）和完整文本
                 content_start = content.find('---\n') + 4
                 content_end = content.rfind('\n---')
                 if content_start > 3 and content_end > content_start:
                     text_content = content[content_start:content_end].strip()
                     preview = text_content[:50] + '...' if len(text_content) > 50 else text_content
+                    full_text = text_content  # 完整文本
                 else:
                     preview = "无内容"
+                    full_text = ""
                 
                 recordings.append({
                     'id': f"{date_str}/{time_str}",
@@ -239,6 +292,7 @@ class FileStorage:
                     'duration': duration,
                     'word_count': word_count,
                     'preview': preview,
+                    'full_text': full_text,  # 添加完整文本
                     'file_path': str(file_path)
                 })
                 
@@ -252,57 +306,68 @@ class FileStorage:
         """
         获取单条录音详情
         recording_id: 格式为 "2026-01-21/15-30"
+        
+        返回字段说明:
+        - original_content: 原始ASR识别文本（来自 .txt 文件）
+        - corrected_content: 纠错后文本（来自 .corrected.txt 文件，如果存在）
+        - content: 向后兼容字段，优先返回纠错后文本
         """
         date_str, time_str = recording_id.split('/')
         date_dir = self.base_path / date_str
         
-        # 查找文件（可能有后缀）
-        file_path = date_dir / f"{time_str}.txt"
-        if not file_path.exists():
-            # 尝试查找带后缀的文件
-            for candidate in date_dir.glob(f"{time_str}*.txt"):
-                file_path = candidate
-                break
-        
-        if not file_path.exists():
+        # 查找原始文件
+        original_file = date_dir / f"{time_str}.txt"
+        if not original_file.exists():
             return None
         
         try:
-            content = file_path.read_text(encoding='utf-8')
-            
-            # 提取纯文本内容
-            content_start = content.find('---\n') + 4
-            content_end = content.rfind('\n---')
-            text_content = content[content_start:content_end].strip() if content_end > content_start else content
+            # 读取原始文本
+            original_content = original_file.read_text(encoding='utf-8')
+            content_start = original_content.find('---\n') + 4
+            content_end = original_content.rfind('\n---')
+            original_text = original_content[content_start:content_end].strip() if content_end > content_start else original_content
             
             # 解析元数据
-            lines = content.split('\n')
+            lines = original_content.split('\n')
             duration = 0.0
-            word_count = len(text_content)
             
             for line in lines:
                 if line.startswith('录音时长:'):
                     duration = float(line.split(':')[1].replace('秒', '').strip())
             
+            # 查找纠错后的文本
+            corrected_file = date_dir / f"{time_str}.corrected.txt"
+            corrected_text = None
+            if corrected_file.exists():
+                try:
+                    corrected_content = corrected_file.read_text(encoding='utf-8')
+                    content_start = corrected_content.find('---\n') + 4
+                    content_end = corrected_content.rfind('\n---')
+                    corrected_text = corrected_content[content_start:content_end].strip() if content_end > content_start else corrected_content
+                except Exception as e:
+                    print(f"[文件存储] 读取纠错文件失败: {corrected_file}, 错误: {e}")
+            
             # 查找对应的音频文件
             audio_path = None
-            base_name = file_path.stem
-            audio_file = date_dir / f"{base_name}.wav"
+            audio_file = date_dir / f"{time_str}.wav"
             if audio_file.exists():
                 audio_path = str(audio_file)
             
+            # 返回结果
             return {
                 'id': recording_id,
                 'date': date_str,
                 'time': time_str.replace('-', ':'),
                 'duration': duration,
-                'word_count': word_count,
-                'content': text_content,
+                'word_count': len(original_text),
+                'original_content': original_text,  # 新增：原始文本
+                'corrected_content': corrected_text,  # 新增：纠错后文本（可能为None）
+                'content': corrected_text if corrected_text else original_text,  # 向后兼容：优先返回纠错后文本
                 'audio_path': audio_path
             }
             
         except Exception as e:
-            print(f"[文件存储] 读取文件失败: {file_path}, 错误: {e}")
+            print(f"[文件存储] 读取文件失败: {original_file}, 错误: {e}")
             return None
         
     def delete(self, recording_id):

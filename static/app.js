@@ -193,6 +193,7 @@ function displayRecordings(recordings) {
     container.innerHTML = recordings.map(rec => {
         const hasCorrectedText = rec.text_corrected && rec.text_corrected !== rec.text_original;
         const displayText = hasCorrectedText ? rec.text_corrected : (rec.preview || '');
+        const fullText = rec.full_text || rec.preview || '';
         
         return `
         <div class="recording-item" id="rec-${rec.id}">
@@ -203,6 +204,10 @@ function displayRecordings(recordings) {
                     ${hasCorrectedText ? '<span class="correction-badge">已纠错</span>' : ''}
                 </div>
                 <div class="recording-text">${displayText}</div>
+                <details class="recording-full-text">
+                    <summary>展开查看完整转写</summary>
+                    <div class="full-text-content">${fullText}</div>
+                </details>
                 ${hasCorrectedText ? `<details class="recording-original"><summary>查看原始文本</summary><div class="original-text">${rec.text_original || rec.preview}</div></details>` : ''}
                 <div id="correction-result-${rec.id}" class="correction-result" style="display:none;"></div>
             </div>
@@ -210,6 +215,11 @@ function displayRecordings(recordings) {
                 <button class="btn btn-small" onclick="playRecording('${rec.id}')" title="播放录音">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
                         <path d="M3 2v12l10-6z"></path>
+                    </svg>
+                </button>
+                <button class="btn btn-small btn-info" onclick="retranscribeRecording('${rec.id}')" title="重新识别">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M13.65 2.35c1.8 1.8 1.8 4.7 0 6.5l-1.4-1.4c1-1 1-2.7 0-3.7s-2.7-1-3.7 0l-1.4-1.4c1.8-1.8 4.7-1.8 6.5 0zM2.35 13.65c-1.8-1.8-1.8-4.7 0-6.5l1.4 1.4c-1 1-1 2.7 0 3.7s2.7 1 3.7 0l1.4 1.4c-1.8 1.8-4.7 1.8-6.5 0z"></path>
                     </svg>
                 </button>
                 <button class="btn btn-small btn-warning" onclick="recorrectRecording('${rec.id}')" title="重新纠正">
@@ -573,35 +583,70 @@ console.error = function(...args) {
 // ==================== 重新纠正功能 ====================
 
 async function recorrectRecording(recordingId) {
-    addLog(`开始重新纠正录音: ${recordingId}`, 'info');
+    addLog(`━━━ 开始纠正: ${recordingId} ━━━`, 'info');
     
     try {
         // 获取录音详情
+        addLog('📥 获取录音详情...', 'info');
         const recResult = await apiCall(`/recordings/${recordingId}`);
         const recording = recResult.recording;
         
-        if (!recording || !recording.content) {
-            addLog('无法获取录音内容', 'error');
+        if (!recording || !recording.original_content) {
+            addLog('❌ 无法获取录音内容', 'error');
             showModal('错误', '无法获取录音内容');
             return;
         }
         
-        const originalText = recording.content;
-        addLog(`原始文本: ${originalText.substring(0, 50)}...`, 'info');
+        // 【修复】使用 original_content 而不是 content，确保始终从原始ASR文本纠正
+        const originalText = recording.original_content;
+        const textPreview = originalText.length > 50 ? originalText.substring(0, 50) + '...' : originalText;
+        addLog(`📝 原始文本(${originalText.length}字): ${textPreview}`, 'info');
         
         // 调用纠正API
-        addLog('调用文本纠正API...', 'info');
+        addLog('🤖 调用 macro-correct 纠错引擎...', 'info');
+        const startTime = Date.now();
         const correctionResult = await apiCall('/correct_text', 'POST', { text: originalText });
+        const elapsed = Date.now() - startTime;
         
         if (!correctionResult.success) {
-            addLog(`纠正失败: ${correctionResult.error}`, 'error');
+            addLog(`❌ 纠正失败: ${correctionResult.error}`, 'error');
             showModal('纠正失败', correctionResult.error || '未知错误');
             return;
         }
         
+        // 打印完整API响应
+        addLog('━━━ API 返回详情 ━━━', 'info');
+        addLog(`📦 完整响应: ${JSON.stringify(correctionResult, null, 2)}`, 'info');
+        
         const correctedText = correctionResult.corrected;
         const changed = correctionResult.changed;
         const changes = correctionResult.changes;
+        const timeMs = correctionResult.time_ms || elapsed;
+        const fromCache = correctionResult.from_cache || false;
+        
+        // 输出纠错结果日志
+        addLog(`⏱ 耗时: ${timeMs}ms | 来源: ${fromCache ? '🔄 缓存' : '🤖 模型'}`, 'info');
+        if (changed) {
+            const changesCount = Array.isArray(changes) ? changes.length : 0;
+            addLog(`✅ 发现 ${changesCount} 处修改`, 'success');
+            
+            // 输出每一处修改的详细信息
+            if (Array.isArray(changes) && changes.length > 0) {
+                addLog('━━━ 修改详情 ━━━', 'info');
+                changes.forEach((change, index) => {
+                    const pos = change.position || '?';
+                    const orig = change.original || '?';
+                    const corr = change.corrected || '?';
+                    const conf = change.confidence !== undefined ? change.confidence.toFixed(4) : '?';
+                    addLog(`  ${index + 1}. 位置${pos}: '${orig}' → '${corr}' (置信度: ${conf})`, 'success');
+                });
+            }
+            
+            const correctedPreview = correctedText.length > 50 ? correctedText.substring(0, 50) + '...' : correctedText;
+            addLog(`📝 纠正后: ${correctedPreview}`, 'success');
+        } else {
+            addLog('ℹ️ 文本无需修改', 'info');
+        }
         
         // 格式化changes为易读文本
         let changesText = '';
@@ -616,13 +661,14 @@ async function recorrectRecording(recordingId) {
         // 保存纠正后文本到文件
         if (changed) {
             try {
+                addLog('💾 保存纠正结果...', 'info');
                 await apiCall(`/recordings/${recordingId}/corrected`, 'POST', {
                     corrected_text: correctedText,
                     changes: changesText
                 });
-                addLog(`✓ 纠正文本已保存: ${recordingId}.corrected.txt`, 'success');
+                addLog(`✅ 已保存: ${recordingId}.corrected.txt`, 'success');
             } catch (error) {
-                addLog(`⚠ 保存纠正文本失败: ${error.message}`, 'warning');
+                addLog(`⚠️ 保存失败: ${error.message}`, 'warning');
             }
         }
         
@@ -651,12 +697,59 @@ async function recorrectRecording(recordingId) {
             }
         }
         
+        addLog(`━━━ 纠正完成 ━━━`, 'success');
         showSuccess(`纠正完成！${changed ? '已发现并修正问题' : '文本无需修改'}`);
         
     } catch (error) {
-        addLog(`纠正失败: ${error.message}`, 'error');
+        addLog(`❌ 纠正异常: ${error.message}`, 'error');
         console.error('[重新纠正失败]', error);
         showModal('纠正失败', error.message || '网络请求失败');
+    }
+}
+
+// ==================== 重新识别功能 ====================
+
+async function retranscribeRecording(recordingId) {
+    addLog(`━━━ 开始重新识别: ${recordingId} ━━━`, 'info');
+    
+    if (!confirm('重新识别会替换原有的转写文本，确定要继续吗？')) {
+        addLog('❌ 用户取消重新识别', 'warning');
+        return;
+    }
+    
+    try {
+        addLog('🎤 调用 Whisper 模型重新识别音频...', 'info');
+        const startTime = Date.now();
+        const result = await apiCall(`/recordings/${recordingId}/retranscribe`, 'POST');
+        const elapsed = Date.now() - startTime;
+        
+        if (!result.success) {
+            addLog(`❌ 重新识别失败: ${result.error}`, 'error');
+            showModal('识别失败', result.error || '未知错误');
+            return;
+        }
+        
+        const newText = result.text;
+        const timeMs = result.time_ms || elapsed;
+        
+        // 输出识别结果日志
+        addLog(`⏱ 耗时: ${timeMs}ms (${(timeMs/1000).toFixed(1)}秒)`, 'info');
+        addLog(`✅ 识别完成，文本长度: ${newText.length} 字`, 'success');
+        
+        const textPreview = newText.length > 100 ? newText.substring(0, 100) + '...' : newText;
+        addLog(`📝 新文本: ${textPreview}`, 'success');
+        
+        addLog(`━━━ 识别完成 ━━━`, 'success');
+        
+        // 刷新录音列表
+        setTimeout(() => {
+            loadRecordings();
+            showModal('识别完成', `已更新转写文本（${newText.length}字）`);
+        }, 500);
+        
+    } catch (error) {
+        addLog(`❌ 识别异常: ${error.message}`, 'error');
+        showModal('识别失败', error.message || '未知错误');
     }
 }
 

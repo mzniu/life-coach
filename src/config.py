@@ -22,8 +22,8 @@ IS_RASPBERRY_PI = is_raspberry_pi()
 # Platform-aware配置
 if IS_RASPBERRY_PI:
     # 树莓派配置
-    WHISPER_MODEL = "tiny"
-    ASR_MODEL_SIZE = "tiny"
+    WHISPER_MODEL = "small"
+    ASR_MODEL_SIZE = "small"
     ASR_COMPUTE_TYPE = "int8"
     ASR_BEAM_SIZE = 3
     ASR_VAD_FILTER = True

@@ -622,6 +622,45 @@ body {
     margin-bottom: var(--spacing-sm);
 }
 
+/* 展开查看完整转写文本 */
+.recording-full-text {
+    margin-top: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+}
+
+.recording-full-text summary {
+    font-family: var(--font-code);
+    font-size: 11px;
+    color: var(--accent-primary);
+    cursor: pointer;
+    user-select: none;
+    padding: 4px 8px;
+    border: var(--border-width) solid var(--accent-primary);
+    display: inline-block;
+    transition: all 0.2s ease;
+}
+
+.recording-full-text summary:hover {
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+}
+
+.recording-full-text[open] summary {
+    margin-bottom: var(--spacing-sm);
+}
+
+.full-text-content {
+    margin-top: var(--spacing-sm);
+    padding: var(--spacing-md);
+    background: var(--bg-secondary);
+    border-left: 2px solid var(--accent-primary);
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.8;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
 .recording-original {
     margin-top: var(--spacing-sm);
 }

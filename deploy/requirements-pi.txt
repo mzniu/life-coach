@@ -1,5 +1,5 @@
 # Life Coach 树莓派依赖清单
-# 针对 Raspberry Pi 4B 优化（ARM架构）
+# 针对 Raspberry Pi 4B 优化(ARM架构)
 
 # Web框架
 Flask==3.1.0
@@ -13,12 +13,18 @@ sounddevice==0.5.1
 numpy>=1.24.0,<2.0.0
 scipy==1.11.4
 
-# ASR引擎（使用CPU版本，INT8量化）
+# ASR引擎(使用CPU版本,INT8量化)
 faster-whisper==1.1.0
 
-# 文本纠错（可选，需要 ~330MB 模型）
-# 启用前需要: export TEXT_CORRECTION_ENABLED=true
-llama-cpp-python==0.2.89
+# ===== 文本纠错引擎 =====
+# macro-correct: 专业纠错(推荐,快5倍,1.5秒/条)
+# 依赖: PyTorch + transformers 4.30.2
+torch>=2.0.0+cpu
+transformers==4.30.2  # 锁定版本,不要升级(macro-correct兼容性)
+macro-correct==0.0.5
+
+# llama-cpp: 通用纠错(备选,轻量但慢,8秒/条)
+# llama-cpp-python==0.2.89  # 如需切换到 llama-cpp 引擎,取消此注释
 
 # 声纹识别
 librosa==0.10.2
@@ -26,7 +32,7 @@ scikit-learn==1.5.0
 joblib==1.5.0
 soundfile==0.13.1
 
-# GPIO和硬件（树莓派专用）
+# GPIO和硬件(树莓派专用)
 RPi.GPIO==0.7.1
 smbus2==0.4.3
 pillow==11.0.0

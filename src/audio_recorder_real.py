@@ -15,9 +15,19 @@ except ImportError:
     print("[音频录制] 安装方法: pip install sounddevice")
 
 class AudioRecorder:
-    """音频录制器（真实采集）"""
+    """音频录制器（真实采集 + 实时分段支持）"""
     
-    def __init__(self, sample_rate=16000, channels=1):
+    def __init__(self, sample_rate=16000, channels=1, 
+                 realtime_transcribe=False, segment_callback=None):
+        """
+        初始化录音器
+        
+        Args:
+            sample_rate: 采样率
+            channels: 声道数
+            realtime_transcribe: 是否启用实时转录分段
+            segment_callback: 分段回调函数 callback(audio_segment, metadata)
+        """
         global REAL_AUDIO
         self.sample_rate = sample_rate
         self.channels = channels
@@ -25,6 +35,18 @@ class AudioRecorder:
         self.start_time = None
         self.audio_data = []
         self.recording_thread = None
+        
+        # 实时转录支持
+        self.realtime_transcribe = realtime_transcribe
+        self.segment_callback = segment_callback
+        self.current_segment = []  # 当前累积的音频段
+        self.segment_start_time = None  # 分段开始时间
+        self.last_audio_time = None  # 最后一次音频时间
+        self.silence_threshold = 500  # 静音阈值（幅度）
+        self.min_silence_duration = 0.8  # 静音触发时长（秒）
+        self.max_segment_duration = 10.0  # 最大分段时长（秒）
+        self.min_segment_duration = 0.5  # 最小分段时长（秒）
+        self.segment_count = 0
         
         if REAL_AUDIO:
             try:
@@ -52,6 +74,12 @@ class AudioRecorder:
         self.start_time = time.time()
         self.audio_data = []
         
+        # 重置实时分段状态
+        self.current_segment = []
+        self.segment_start_time = time.time()
+        self.last_audio_time = time.time()
+        self.segment_count = 0
+        
         if REAL_AUDIO:
             print("[音频录制] 开始录音（真实采集）")
             self.recording_thread = threading.Thread(target=self._real_recording_loop, daemon=True)
@@ -72,8 +100,15 @@ class AudioRecorder:
         if self.recording_thread:
             self.recording_thread.join(timeout=2.0)
         
+        # 处理剩余的分段（如果有）
+        if self.realtime_transcribe and len(self.current_segment) > 0:
+            print("[音频分段] 处理最后一段...")
+            self._trigger_segment()
+        
         duration = time.time() - self.start_time
         print(f"[音频录制] 停止录音（时长: {duration:.1f}秒, 采样数: {len(self.audio_data)}）")
+        if self.realtime_transcribe:
+            print(f"[音频分段] 共产生 {self.segment_count} 个分段")
         return self.audio_data
         
     def cancel(self):
@@ -87,6 +122,67 @@ class AudioRecorder:
         if self.start_time:
             return time.time() - self.start_time
         return 0
+    
+    def _check_silence(self, audio_chunk):
+        """检测音频块是否为静音"""
+        if len(audio_chunk) == 0:
+            return True
+        # 计算音频能量（平均绝对值）
+        energy = np.mean(np.abs(audio_chunk))
+        return energy < self.silence_threshold
+    
+    def _should_trigger_segment(self):
+        """判断是否应该触发分段"""
+        if not self.realtime_transcribe or not self.segment_callback:
+            return False
+            
+        if len(self.current_segment) == 0:
+            return False
+            
+        segment_duration = time.time() - self.segment_start_time
+        silence_duration = time.time() - self.last_audio_time
+        
+        # 触发条件1: 静音超过阈值且分段时长足够
+        if silence_duration >= self.min_silence_duration and segment_duration >= self.min_segment_duration:
+            return True
+            
+        # 触发条件2: 分段时长超过最大限制
+        if segment_duration >= self.max_segment_duration:
+            return True
+            
+        return False
+    
+    def _trigger_segment(self):
+        """触发分段回调"""
+        if len(self.current_segment) == 0:
+            return
+            
+        try:
+            segment_duration = time.time() - self.segment_start_time
+            self.segment_count += 1
+            
+            print(f"[音频分段] 触发第 {self.segment_count} 段（时长: {segment_duration:.2f}秒，{len(self.current_segment)} 块）")
+            
+            # 合并音频块
+            segment_audio = np.concatenate(self.current_segment)
+            
+            # 调用回调函数
+            metadata = {
+                'segment_index': self.segment_count,
+                'duration': segment_duration,
+                'timestamp': self.segment_start_time,
+                'sample_count': len(segment_audio)
+            }
+            self.segment_callback(segment_audio.copy(), metadata)
+            
+            # 重置分段
+            self.current_segment = []
+            self.segment_start_time = time.time()
+            
+        except Exception as e:
+            print(f"[音频分段错误] {e}")
+            import traceback
+            traceback.print_exc()
     
     def _real_recording_loop(self):
         """真实录音循环"""
@@ -129,17 +225,34 @@ class AudioRecorder:
                         print("[音频录制] 警告: 音频缓冲区溢出")
                     
                     # 如果采样率不匹配，进行简单的降采样 (仅支持 48k -> 16k)
+                    processed_chunk = None
                     if device_rate == 48000 and self.sample_rate == 16000:
                          # 简单的隔点采样 (3倍降采样)
-                         # audio_chunk是 (samples, channels) 的numpy数组
                          downsampled = audio_chunk[::3] 
-                         self.audio_data.append(downsampled.flatten())
+                         processed_chunk = downsampled.flatten()
                     elif device_rate != self.sample_rate:
                         # 其他情况暂时原样保存（ASR可能会不准）
-                        self.audio_data.append(audio_chunk.flatten())
+                        processed_chunk = audio_chunk.flatten()
                     else:
                         # 16k -> 16k
-                        self.audio_data.append(audio_chunk.flatten())
+                        processed_chunk = audio_chunk.flatten()
+                    
+                    # 保存到完整音频数据
+                    self.audio_data.append(processed_chunk)
+                    
+                    # 实时分段逻辑
+                    if self.realtime_transcribe and self.segment_callback:
+                        # 添加到当前分段
+                        self.current_segment.append(processed_chunk)
+                        
+                        # 检测是否为静音
+                        is_silence = self._check_silence(processed_chunk)
+                        if not is_silence:
+                            self.last_audio_time = time.time()
+                        
+                        # 检查是否应触发分段
+                        if self._should_trigger_segment():
+                            self._trigger_segment()
                     
         except Exception as e:
             print(f"[音频录制] 错误: {e}")

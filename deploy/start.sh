@@ -91,15 +91,47 @@ fi
 
 # 4. 检查必要目录
 echo ""
-echo "[4/4] 检查数据目录..."
+echo "[4/5] 检查数据目录..."
 mkdir -p recordings voiceprints models logs
 echo "  ✓ 数据目录已就绪"
+
+# 5. 预热文本纠错器（如果启用）
+echo ""
+echo "[5/5] 预热文本纠错器..."
+if [ "${TEXT_CORRECTION_ENABLED}" = "true" ]; then
+    if [ "${TEXT_CORRECTOR_ENGINE}" = "macro-correct" ]; then
+        echo "  → macro-correct 引擎需要预热..."
+        
+        # 设置使用国内镜像
+        export HF_ENDPOINT="https://hf-mirror.com"
+        
+        # 检查是否已预热过（通过检查缓存目录）
+        CACHE_DIR="${HOME}/.cache/huggingface/hub"
+        if [ -d "$CACHE_DIR" ] && [ "$(ls -A $CACHE_DIR 2>/dev/null)" ]; then
+            echo "  ✓ 模型已缓存，跳过预热"
+        else
+            echo "  → 首次运行，下载模型（约 20MB，需要 30-60 秒）..."
+            if python deploy/warmup_corrector.py; then
+                echo "  ✓ 模型预热成功"
+            else
+                echo "  ⚠ 模型预热失败，首次请求可能较慢"
+            fi
+        fi
+    else
+        echo "  → 使用 ${TEXT_CORRECTOR_ENGINE} 引擎，无需预热"
+    fi
+else
+    echo "  → 文本纠错未启用，跳过预热"
+fi
 
 echo ""
 echo "======================================"
 echo "启动 Life Coach 服务..."
 echo "======================================"
 echo ""
+
+# 设置使用国内镜像（用于运行时下载模型）
+export HF_ENDPOINT="https://hf-mirror.com"
 
 # 启动主程序
 exec python main.py
