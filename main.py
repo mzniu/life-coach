@@ -403,6 +403,14 @@ class LifeCoachApp:
     def _on_audio_segment(self, audio_segment, metadata):
         """音频分段回调 - 将音频段添加到转录队列"""
         if self.realtime_transcriber and self.realtime_transcriber.is_running:
+            print(f"[实时转录] 收到音频段 {metadata.get('segment_index')}，长度: {len(audio_segment)} 样本")
+            
+            # 广播到前端
+            api_server.broadcast_log(
+                f"[VAD] 第 {metadata.get('segment_index')} 段已提交转录队列（时长: {metadata.get('duration', 0):.1f}秒）",
+                'info'
+            )
+            
             self.realtime_transcriber.add_segment(audio_segment, metadata)
     
     def _on_segment_transcribed(self, text, metadata):
@@ -411,16 +419,25 @@ class LifeCoachApp:
             self.accumulated_text += text
             self.word_count = len(self.accumulated_text)
             
+            segment_idx = metadata.get('segment_index', 0)
+            transcribe_time = metadata.get('transcribe_time', 0)
+            
+            print(f"[实时转录] 推送第 {segment_idx} 段: {text[:50]}... (耗时: {transcribe_time:.2f}秒)")
+            
+            # 广播日志
+            api_server.broadcast_log(
+                f"[转录完成] 第 {segment_idx} 段: \"{text[:20]}...\" ({transcribe_time:.2f}秒)",
+                'success'
+            )
+            
             # 通过WebSocket推送实时转录结果
             api_server.broadcast_realtime_transcript(
                 segment=text,
                 full_text=self.accumulated_text,
-                segment_index=metadata.get('segment_index', 0),
-                transcribe_time=metadata.get('transcribe_time', 0),
+                segment_index=segment_idx,
+                transcribe_time=transcribe_time,
                 total_segments=metadata.get('total_segments', 0)
             )
-            
-            print(f"[实时转录] 推送第 {metadata.get('segment_index')} 段: {text[:50]}...")
             
         except Exception as e:
             print(f"[实时转录错误] 回调异常: {e}")

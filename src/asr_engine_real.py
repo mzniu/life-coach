@@ -121,9 +121,17 @@ class ASREngine:
         print("[ASR] 开始真实转写...")
         
         try:
-            # 合并音频块
-            if isinstance(audio_chunks, list) and len(audio_chunks) > 0:
-                # 展平音频数据
+            # 处理音频输入：支持列表或numpy数组
+            if isinstance(audio_chunks, np.ndarray):
+                # 直接是numpy数组
+                audio_np = audio_chunks.astype(np.float32)
+                if audio_np.max() > 1.0 or audio_np.min() < -1.0:
+                    # 需要归一化
+                    audio_np = audio_np / 32768.0  # int16 -> float32
+                print(f"[ASR] 音频数据（numpy）: {len(audio_np)} 采样点 ({len(audio_np)/16000:.1f}秒)")
+                
+            elif isinstance(audio_chunks, list) and len(audio_chunks) > 0:
+                # 合并音频块列表
                 audio_data = []
                 for chunk in audio_chunks:
                     if isinstance(chunk, list):
@@ -135,80 +143,79 @@ class ASREngine:
                 audio_np = np.array(audio_data, dtype=np.float32)
                 audio_np = audio_np / 32768.0  # int16 -> float32
                 
-                print(f"[ASR] 音频数据: {len(audio_np)} 采样点 ({len(audio_np)/16000:.1f}秒)")
-                
-                # 执行转写（使用配置的参数）
-                # initial_prompt 提示模型输出标点符号和规范的中文
-                segments, info = self.model.transcribe(
-                    audio_np,
-                    language="zh",  # 中文
-                    beam_size=ASR_BEAM_SIZE,  # 使用配置的 beam size
-                    vad_filter=ASR_VAD_FILTER,  # 使用配置的 VAD
-                    initial_prompt="以下是普通话的句子，包含标点符号：",  # 提示输出标点
-                )
-                
-                print(f"[ASR] 检测语言: {info.language} (概率: {info.language_probability:.2f})")
-                
-                # 收集转写结果 - 实时逐个处理segment
-                full_text = []
-                segment_count = 0
-                
-                # 直接遍历生成器，每处理一个segment就回调一次
-                for segment in segments:
-                    text = segment.text.strip()
-                    full_text.append(text)
-                    segment_count += 1
-                    
-                    # 实时回调进度（使用已处理的segment数量估算进度）
-                    if callback:
-                        # 由于无法预知总数，使用已处理的字数来估算进度
-                        # 假设平均每秒产生10-15个字，根据音频长度估算
-                        partial = "".join(full_text)
-                        # 根据已转写的字数和音频时长估算进度
-                        progress = min(95, int(len(partial) / max(1, info.duration * 10) * 100))
-                        callback(progress, partial)
-                        print(f"[ASR进度] {progress}% - 已转写 {len(partial)} 字")
-                    
-                    print(f"[ASR片段] [{segment.start:.1f}s -> {segment.end:.1f}s] {text}")
-                
-                # 最后回调100%
-                result = "".join(full_text)
-                if callback:
-                    callback(100, result)
-                
-                print(f"[ASR] 转写完成: {len(result)} 字符")
-                
-                # 文本纠错（如果启用）
-                if self.text_corrector is not None:
-                    print("[ASR] 开始文本纠错...")
-                    try:
-                        correction_result = self.text_corrector.correct(result)
-                        
-                        if correction_result['success'] and correction_result['changed']:
-                            print(f"[ASR] 纠错完成: {correction_result['time_ms']}ms")
-                            print(f"[ASR] 原文: {result}")
-                            print(f"[ASR] 纠正: {correction_result['corrected']}")
-                            print(f"[ASR] 变化: {correction_result['changes']}")
-                            
-                            # 返回带纠错信息的结果
-                            return {
-                                "text": correction_result['corrected'],
-                                "text_original": result,
-                                "correction_enabled": True,
-                                "correction_changes": correction_result['changes'],
-                                "correction_time_ms": correction_result['time_ms']
-                            }
-                        else:
-                            print(f"[ASR] 纠错无变化或失败")
-                    except Exception as e:
-                        print(f"[ASR警告] 纠错过程异常: {e}, 返回原文")
-                
-                # 返回普通结果
-                return result
-                
+                print(f"[ASR] 音频数据（列表）: {len(audio_np)} 采样点 ({len(audio_np)/16000:.1f}秒)")
             else:
-                print("[ASR警告] 音频数据为空")
+                print("[ASR警告] 音频数据为空或格式错误")
                 return ""
+            
+            # 执行转写（使用配置的参数）
+            # initial_prompt 提示模型输出标点符号和规范的中文
+            segments, info = self.model.transcribe(
+                audio_np,
+                language="zh",  # 中文
+                beam_size=ASR_BEAM_SIZE,  # 使用配置的 beam size
+                vad_filter=ASR_VAD_FILTER,  # 使用配置的 VAD
+                initial_prompt="以下是普通话的句子，包含标点符号：",  # 提示输出标点
+            )
+            
+            print(f"[ASR] 检测语言: {info.language} (概率: {info.language_probability:.2f})")
+            
+            # 收集转写结果 - 实时逐个处理segment
+            full_text = []
+            segment_count = 0
+            
+            # 直接遍历生成器，每处理一个segment就回调一次
+            for segment in segments:
+                text = segment.text.strip()
+                full_text.append(text)
+                segment_count += 1
+                
+                # 实时回调进度（使用已处理的segment数量估算进度）
+                if callback:
+                    # 由于无法预知总数，使用已处理的字数来估算进度
+                    # 假设平均每秒产生10-15个字，根据音频长度估算
+                    partial = "".join(full_text)
+                    # 根据已转写的字数和音频时长估算进度
+                    progress = min(95, int(len(partial) / max(1, info.duration * 10) * 100))
+                    callback(progress, partial)
+                    print(f"[ASR进度] {progress}% - 已转写 {len(partial)} 字")
+                
+                print(f"[ASR片段] [{segment.start:.1f}s -> {segment.end:.1f}s] {text}")
+            
+            # 最后回调100%
+            result = "".join(full_text)
+            if callback:
+                callback(100, result)
+            
+            print(f"[ASR] 转写完成: {len(result)} 字符")
+            
+            # 文本纠错（如果启用）
+            if self.text_corrector is not None:
+                print("[ASR] 开始文本纠错...")
+                try:
+                    correction_result = self.text_corrector.correct(result)
+                    
+                    if correction_result['success'] and correction_result['changed']:
+                        print(f"[ASR] 纠错完成: {correction_result['time_ms']}ms")
+                        print(f"[ASR] 原文: {result}")
+                        print(f"[ASR] 纠正: {correction_result['corrected']}")
+                        print(f"[ASR] 变化: {correction_result['changes']}")
+                        
+                        # 返回带纠错信息的结果
+                        return {
+                            "text": correction_result['corrected'],
+                            "text_original": result,
+                            "correction_enabled": True,
+                            "correction_changes": correction_result['changes'],
+                            "correction_time_ms": correction_result['time_ms']
+                        }
+                    else:
+                        print(f"[ASR] 纠错无变化或失败")
+                except Exception as e:
+                    print(f"[ASR警告] 纠错过程异常: {e}, 返回原文")
+            
+            # 返回普通结果
+            return result
                 
         except Exception as e:
             print(f"[ASR错误] 转写失败: {e}")

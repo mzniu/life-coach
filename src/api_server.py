@@ -8,6 +8,7 @@ from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 import os
 import sys
+import time
 
 # 添加父目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -787,7 +788,13 @@ def broadcast_realtime_transcript(segment, full_text, segment_index, transcribe_
         'is_final': False                 # 是否为最终结果（录音结束）
     })
     print(f"[WebSocket] 广播实时转录: 第{segment_index}段, {len(segment)}字")
-
+def broadcast_log(message, level='info'):
+    """广播日志消息到前端"""
+    socketio.emit('log_message', {
+        'message': message,
+        'level': level,  # info, success, warning, error
+        'timestamp': time.time()
+    })
 def broadcast_error(error_message, error_code):
     """广播错误"""
     socketio.emit('error_occurred', {

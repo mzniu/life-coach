@@ -62,6 +62,29 @@ socket.on('realtime_transcript', (data) => {
     updateRealtimeTranscript(data);
 });
 
+// 日志消息事件
+socket.on('log_message', (data) => {
+    const logEntry = `[${new Date().toLocaleTimeString()}] ${data.message}`;
+    console.log(logEntry);
+    
+    // 在前端日志框显示
+    const logContainer = document.getElementById('log-container');
+    if (logContainer) {
+        const logLine = document.createElement('div');
+        logLine.className = `log-${data.level}`;
+        logLine.textContent = logEntry;
+        logContainer.appendChild(logLine);
+        
+        // 限制日志行数（最多50行）
+        while (logContainer.children.length > 50) {
+            logContainer.removeChild(logContainer.firstChild);
+        }
+        
+        // 自动滚动到底部
+        logContainer.scrollTop = logContainer.scrollHeight;
+    }
+});
+
 socket.on('error_occurred', (data) => {
     console.error('[错误]', data);
     showError(data.error);

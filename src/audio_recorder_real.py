@@ -181,7 +181,15 @@ class AudioRecorder:
             segment_duration = time.time() - self.segment_start_time
             self.segment_count += 1
             
-            print(f"[音频分段] 触发第 {self.segment_count} 段（时长: {segment_duration:.2f}秒，{len(self.current_segment)} 块）")
+            log_msg = f"[音频分段] 触发第 {self.segment_count} 段（时长: {segment_duration:.2f}秒，{len(self.current_segment)} 块）"
+            print(log_msg)
+            
+            # 广播到前端日志
+            try:
+                from src.api_server import broadcast_log
+                broadcast_log(f"[VAD] 检测到语音停顿，触发第 {self.segment_count} 段分割", 'info')
+            except Exception:
+                pass
             
             # 合并音频块
             segment_audio = np.concatenate(self.current_segment)
