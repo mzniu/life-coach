@@ -74,6 +74,7 @@ class AudioRecorder:
         self.min_segment_duration = REALTIME_MIN_SEGMENT_DURATION  # 从配置读取
         self.segment_count = 0
         self.consecutive_silence_chunks = 0  # 连续静音块计数
+        self.has_voice_in_segment = False  # 当前分段是否有有效语音
         
         # 人声检测配置
         self.voice_detection_enabled = REALTIME_VOICE_DETECTION_ENABLED
@@ -200,10 +201,10 @@ class AudioRecorder:
             
         segment_duration = time.time() - self.segment_start_time
         
-        # 触发条件1: 连续静音chunk达到阈值（1.2秒 = 12个100ms的chunk）
-        # 这样可以避免短暂噪音触发分段，确保真正的语音停顿
+        # 触发条件1: 连续静音chunk达到1.2秒 且 当前分段有有效语音
+        # 这样确保只有真正说话后的停顿才会触发，过滤纯噪音
         min_silence_chunks = int(self.min_silence_duration / 0.1)  # 1.2s / 0.1s = 12
-        if self.consecutive_silence_chunks >= min_silence_chunks and segment_duration >= self.min_segment_duration:
+        if self.consecutive_silence_chunks >= min_silence_chunks and self.has_voice_in_segment:
             return True
             
         # 触发条件2: 分段时长超过最大限制（强制分割）
@@ -269,6 +270,7 @@ class AudioRecorder:
             self.segment_start_time = time.time()
             self.last_audio_time = time.time()  # 重置，避免累积
             self.consecutive_silence_chunks = 0  # 重置静音计数
+            self.has_voice_in_segment = False  # 重置语音标记
             
         except Exception as e:
             print(f"[音频分段错误] {e}")
@@ -346,6 +348,7 @@ class AudioRecorder:
                             # 有声音且是人声
                             self.last_audio_time = time.time()
                             self.consecutive_silence_chunks = 0  # 有声音，重置静音计数
+                            self.has_voice_in_segment = True  # 标记当前分段有有效语音
                         else:
                             # 静音或非人声噪音
                             self.consecutive_silence_chunks += 1  # 静音，增加计数
