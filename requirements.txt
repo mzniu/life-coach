@@ -7,3 +7,5 @@ luma.oled==3.12.0
 Pillow==10.1.0
 pyaudio==0.2.13
 whisper-cpp-python==0.2.0
+sherpa-onnx>=1.12.0
+psutil>=5.9.0
