@@ -240,9 +240,12 @@ class AudioRecorder:
                 except Exception:
                     pass
                 
-                # 重置分段（不调用回调）
+                # 重置分段状态（关键：必须完整重置，避免状态泄漏到下一个分段）
                 self.current_segment = []
                 self.segment_start_time = time.time()
+                self.last_audio_time = time.time()
+                self.consecutive_silence_chunks = 0
+                self.has_voice_in_segment = False
                 return
             
             log_msg = f"[音频分段] 触发第 {self.segment_count} 段（时长: {segment_duration:.2f}秒，{len(self.current_segment)} 块，能量: {avg_energy:.1f}）"
