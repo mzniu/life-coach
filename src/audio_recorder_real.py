@@ -181,7 +181,30 @@ class AudioRecorder:
             segment_duration = time.time() - self.segment_start_time
             self.segment_count += 1
             
-            log_msg = f"[音频分段] 触发第 {self.segment_count} 段（时长: {segment_duration:.2f}秒，{len(self.current_segment)} 块）"
+            # 合并音频块
+            segment_audio = np.concatenate(self.current_segment)
+            
+            # 检查是否为纯静音（优化：跳过无效音频段）
+            avg_energy = np.mean(np.abs(segment_audio))
+            # 如果平均能量低于阈值的20%，认为是纯静音，跳过转录
+            silence_skip_threshold = self.silence_threshold * 0.2
+            
+            if avg_energy < silence_skip_threshold:
+                print(f"[音频分段] 跳过第 {self.segment_count} 段（纯静音，能量: {avg_energy:.1f} < {silence_skip_threshold:.1f}）")
+                
+                # 广播到前端日志
+                try:
+                    from src.api_server import broadcast_log
+                    broadcast_log(f"[VAD] 跳过第 {self.segment_count} 段（纯静音）", 'info')
+                except Exception:
+                    pass
+                
+                # 重置分段（不调用回调）
+                self.current_segment = []
+                self.segment_start_time = time.time()
+                return
+            
+            log_msg = f"[音频分段] 触发第 {self.segment_count} 段（时长: {segment_duration:.2f}秒，{len(self.current_segment)} 块，能量: {avg_energy:.1f}）"
             print(log_msg)
             
             # 广播到前端日志
@@ -191,15 +214,13 @@ class AudioRecorder:
             except Exception:
                 pass
             
-            # 合并音频块
-            segment_audio = np.concatenate(self.current_segment)
-            
             # 调用回调函数
             metadata = {
                 'segment_index': self.segment_count,
                 'duration': segment_duration,
                 'timestamp': self.segment_start_time,
-                'sample_count': len(segment_audio)
+                'sample_count': len(segment_audio),
+                'avg_energy': float(avg_energy)
             }
             self.segment_callback(segment_audio.copy(), metadata)
             
