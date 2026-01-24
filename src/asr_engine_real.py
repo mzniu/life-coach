@@ -133,17 +133,17 @@ class ASREngine:
     
     def transcribe_stream(self, audio_chunks, callback=None):
         """
-        流式转写
+        流式转写（实时转录场景，跳过文本纠错以提升速度）
         audio_chunks: 音频数据块列表 [[samples], [samples], ...]
         callback: 进度回调函数 callback(progress, partial_text)
         返回: 完整转写文本
         """
         if REAL_ASR and self.model:
-            return self._real_transcribe(audio_chunks, callback)
+            return self._real_transcribe(audio_chunks, callback, skip_correction=True)
         else:
             return self._mock_transcribe(audio_chunks, callback)
     
-    def _real_transcribe(self, audio_chunks, callback=None):
+    def _real_transcribe(self, audio_chunks, callback=None, skip_correction=False):
         """真实的Whisper转写"""
         print("[ASR] 开始真实转写...")
         
@@ -223,8 +223,8 @@ class ASREngine:
             
             print(f"[ASR] 转写完成: {len(result)} 字符")
             
-            # 文本纠错（如果启用）
-            if self.text_corrector is not None:
+            # 文本纠错（如果启用且不跳过）
+            if self.text_corrector is not None and not skip_correction:
                 print("[ASR] 开始文本纠错...")
                 try:
                     correction_result = self.text_corrector.correct(result)
