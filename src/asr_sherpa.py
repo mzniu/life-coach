@@ -107,6 +107,51 @@ class SherpaASR:
         # 获取结果
         return self.recognizer.get_result(stream)
     
+    def transcribe_stream(
+        self,
+        audio_chunk: np.ndarray,
+        stream: Optional['sherpa_onnx.OnlineStream'] = None
+    ) -> tuple:
+        """
+        流式识别音频块
+        
+        Args:
+            audio_chunk: 音频数据 (float32, [-1, 1])
+            stream: 流对象（如果为 None 则创建新流）
+        
+        Returns:
+            (text, is_endpoint, stream)
+        """
+        import sherpa_onnx
+        
+        if stream is None:
+            stream = self.recognizer.create_stream()
+        
+        # 确保是 float32 格式
+        if audio_chunk.dtype != np.float32:
+            audio_chunk = audio_chunk.astype(np.float32)
+        
+        # 如果是 int16 范围，归一化
+        if audio_chunk.max() > 1.0 or audio_chunk.min() < -1.0:
+            audio_chunk = audio_chunk / 32768.0
+        
+        # 送入流
+        stream.accept_waveform(self.sample_rate, audio_chunk)
+        
+        # 解码
+        while self.recognizer.is_ready(stream):
+            self.recognizer.decode_stream(stream)
+        
+        # 获取结果
+        text = self.recognizer.get_result(stream)
+        is_endpoint = self.recognizer.is_endpoint(stream)
+        
+        # 如果是端点，重置流
+        if is_endpoint:
+            self.recognizer.reset(stream)
+        
+        return text, is_endpoint, stream
+    
     def transcribe_file(self, audio_file: str) -> str:
         """
         识别音频文件
