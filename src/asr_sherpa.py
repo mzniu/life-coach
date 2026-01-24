@@ -104,8 +104,9 @@ class SherpaASR:
         while self.recognizer.is_ready(stream):
             self.recognizer.decode_stream(stream)
         
-        # 获取结果
-        return self.recognizer.get_result(stream)
+        # 获取结果（返回文本字符串）
+        result = self.recognizer.get_result(stream)
+        return result.text if hasattr(result, 'text') else str(result)
     
     def transcribe_stream(
         self,
@@ -142,8 +143,9 @@ class SherpaASR:
         while self.recognizer.is_ready(stream):
             self.recognizer.decode_stream(stream)
         
-        # 获取结果
-        text = self.recognizer.get_result(stream)
+        # 获取结果（提取文本）
+        result = self.recognizer.get_result(stream)
+        text = result.text if hasattr(result, 'text') else str(result)
         is_endpoint = self.recognizer.is_endpoint(stream)
         
         # 如果是端点，重置流
