@@ -102,7 +102,7 @@ class SileroVAD:
     def _check_segments(self) -> None:
         """检查并处理完整的语音段"""
         while not self.vad.empty():
-            segment = self.vad.front()
+            segment = self.vad.front
             self.vad.pop()
             
             # 获取语音段信息

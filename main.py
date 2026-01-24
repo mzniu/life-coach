@@ -349,7 +349,7 @@ class LifeCoachApp:
             
             api_server.broadcast_recording_progress(
                 self.recording_duration,
-                self.recording_id
+                self.word_count  # 使用实时字数而不是recording_id
             )
             
             time.sleep(1)
