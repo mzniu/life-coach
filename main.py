@@ -50,9 +50,9 @@ class LifeCoachApp:
             
             self.display = DisplayController()
             self.buttons = ButtonHandler()
-            # AudioRecorder暂不启用实时分段，在start_recording时按需启用
+            # AudioRecorder启用实时分段和VAD
             self.recorder = AudioRecorder(
-                realtime_transcribe=False,  # 默认关闭，按需开启
+                realtime_transcribe=True,  # 启用VAD和实时分段
                 segment_callback=self._on_audio_segment
             )
             self.asr = ASREngine()
