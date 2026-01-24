@@ -26,16 +26,25 @@ except ImportError:
     USE_CONFIG = False
 
 # 尝试导入真实ASR库
+# 检测可用的ASR引擎
+ASR_ENGINE_TYPE = os.getenv("ASR_ENGINE", "whisper")  # whisper 或 sherpa
+
 try:
-    from faster_whisper import WhisperModel
-    REAL_ASR = True
-    print("[ASR] 使用真实 faster-whisper 引擎")
-    if USE_CONFIG:
-        print(f"[ASR] 从配置文件加载: model={ASR_MODEL_SIZE}, compute={ASR_COMPUTE_TYPE}")
-except ImportError:
+    if ASR_ENGINE_TYPE == "sherpa":
+        from src.asr_sherpa import ParaformerModel as ASRModel
+        REAL_ASR = True
+        print("[ASR] 使用 Sherpa-ONNX Paraformer 引擎")
+    else:
+        from faster_whisper import WhisperModel as ASRModel
+        REAL_ASR = True
+        print("[ASR] 使用 faster-whisper 引擎")
+        if USE_CONFIG:
+            print(f"[ASR] 从配置文件加载: model={ASR_MODEL_SIZE}, compute={ASR_COMPUTE_TYPE}")
+except ImportError as e:
     REAL_ASR = False
-    print("[ASR警告] faster-whisper 未安装，将使用模拟模式")
-    print("[ASR警告] 安装方法: pip install faster-whisper")
+    ASRModel = None
+    print(f"[ASR警告] {ASR_ENGINE_TYPE} 未安装: {e}")
+    print("[ASR警告] 将使用模拟模式")
 
 class ASREngine:
     """ASR转写引擎（支持真实和模拟模式 + 文本纠错）"""
@@ -71,7 +80,7 @@ class ASREngine:
             print("[ASR] 文本纠错功能未启用")
         
         if REAL_ASR:
-            print(f"[ASR] 加载 Whisper 模型: {self.model_size} ({self.device}, {self.compute_type})")
+            print(f"[ASR] 加载模型: {self.model_size} ({self.device}, {self.compute_type})")
             print("[ASR] 首次加载可能需要下载模型，请稍候...")
             
             # 设置使用国内镜像
@@ -79,22 +88,40 @@ class ASREngine:
             
             # 检查本地 models 目录
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            local_models_dir = os.path.join(project_root, "models")
-            download_root = None
-            
-            if os.path.exists(local_models_dir):
-                print(f"[ASR] 检测到本地模型目录: {local_models_dir}")
-                download_root = local_models_dir
             
             try:
-                self.model = WhisperModel(
-                    self.model_size, 
-                    device=self.device, 
-                    compute_type=self.compute_type,
-                    download_root=download_root,
-                    local_files_only=False  # 允许使用缓存的模型
-                )
-                print("[ASR] Whisper 模型加载完成")
+                if ASR_ENGINE_TYPE == "sherpa":
+                    # Paraformer 模型路径
+                    model_path = os.path.join(project_root, "models", "sherpa", "paraformer")
+                    if not os.path.exists(model_path):
+                        print(f"[ASR警告] Paraformer 模型不存在: {model_path}")
+                        print(f"[ASR] 请先下载并解压模型到该目录")
+                        raise FileNotFoundError(f"模型目录不存在: {model_path}")
+                    
+                    self.model = ASRModel(
+                        model_path=model_path,
+                        device=self.device,
+                        compute_type=self.compute_type
+                    )
+                    print(f"[ASR] Paraformer 模型加载完成: {model_path}")
+                else:
+                    # Whisper 模型路径
+                    local_models_dir = os.path.join(project_root, "models")
+                    download_root = None
+                    
+                    if os.path.exists(local_models_dir):
+                        print(f"[ASR] 检测到本地模型目录: {local_models_dir}")
+                        download_root = local_models_dir
+                    
+                    self.model = ASRModel(
+                        self.model_size, 
+                        device=self.device, 
+                        compute_type=self.compute_type,
+                        download_root=download_root,
+                        local_files_only=False  # 允许使用缓存的模型
+                    )
+                    print("[ASR] Whisper 模型加载完成")
+                    
             except Exception as e:
                 print(f"[ASR错误] 模型加载失败: {e}")
                 print("[ASR] 降级到模拟模式")
