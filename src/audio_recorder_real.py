@@ -15,15 +15,21 @@ try:
         REALTIME_SILENCE_THRESHOLD,
         REALTIME_MIN_SILENCE_DURATION,
         REALTIME_MAX_SEGMENT_DURATION,
-        REALTIME_MIN_SEGMENT_DURATION
+        REALTIME_MIN_SEGMENT_DURATION,
+        REALTIME_VOICE_DETECTION_ENABLED,
+        REALTIME_VOICE_FREQ_MIN,
+        REALTIME_VOICE_FREQ_MAX
     )
     USE_CONFIG = True
 except ImportError:
     # 默认值
     REALTIME_SILENCE_THRESHOLD = 500
-    REALTIME_MIN_SILENCE_DURATION = 0.8
+    REALTIME_MIN_SILENCE_DURATION = 1.2
     REALTIME_MAX_SEGMENT_DURATION = 10.0
     REALTIME_MIN_SEGMENT_DURATION = 0.5
+    REALTIME_VOICE_DETECTION_ENABLED = True
+    REALTIME_VOICE_FREQ_MIN = 85
+    REALTIME_VOICE_FREQ_MAX = 3400
     USE_CONFIG = False
 
 try:
@@ -68,6 +74,11 @@ class AudioRecorder:
         self.min_segment_duration = REALTIME_MIN_SEGMENT_DURATION  # 从配置读取
         self.segment_count = 0
         self.consecutive_silence_chunks = 0  # 连续静音块计数
+        
+        # 人声检测配置
+        self.voice_detection_enabled = REALTIME_VOICE_DETECTION_ENABLED
+        self.voice_freq_min = REALTIME_VOICE_FREQ_MIN
+        self.voice_freq_max = REALTIME_VOICE_FREQ_MAX
         
         if REAL_AUDIO:
             try:
@@ -152,6 +163,33 @@ class AudioRecorder:
         energy = np.mean(np.abs(audio_chunk))
         return energy < self.silence_threshold
     
+    def _is_voice(self, audio_chunk):
+        """检测音频块是否为人声（基于频谱特征）"""
+        if not self.voice_detection_enabled or len(audio_chunk) < 256:
+            return True  # 禁用或数据太短，默认认为是人声
+        
+        try:
+            # 使用FFT分析频谱
+            fft_result = np.fft.rfft(audio_chunk)
+            fft_freq = np.fft.rfftfreq(len(audio_chunk), 1.0 / self.sample_rate)
+            fft_magnitude = np.abs(fft_result)
+            
+            # 计算人声频段的能量占比
+            voice_mask = (fft_freq >= self.voice_freq_min) & (fft_freq <= self.voice_freq_max)
+            voice_energy = np.sum(fft_magnitude[voice_mask])
+            total_energy = np.sum(fft_magnitude)
+            
+            if total_energy == 0:
+                return False  # 无能量，认为不是人声
+            
+            # 人声频段能量占比（通常>30%认为是人声）
+            voice_ratio = voice_energy / total_energy
+            return voice_ratio > 0.3
+            
+        except Exception as e:
+            # FFT失败，降级为能量检测
+            return True
+    
     def _should_trigger_segment(self):
         """判断是否应该触发分段"""
         if not self.realtime_transcribe or not self.segment_callback:
@@ -162,9 +200,9 @@ class AudioRecorder:
             
         segment_duration = time.time() - self.segment_start_time
         
-        # 触发条件1: 连续静音chunk达到阈值（约0.8秒 = 8个100ms的chunk）
-        # 这样可以避免短暂噪音触发分段
-        min_silence_chunks = int(self.min_silence_duration / 0.1)  # 0.8s / 0.1s = 8
+        # 触发条件1: 连续静音chunk达到阈值（1.2秒 = 12个100ms的chunk）
+        # 这样可以避免短暂噪音触发分段，确保真正的语音停顿
+        min_silence_chunks = int(self.min_silence_duration / 0.1)  # 1.2s / 0.1s = 12
         if self.consecutive_silence_chunks >= min_silence_chunks and segment_duration >= self.min_segment_duration:
             return True
             
@@ -300,10 +338,16 @@ class AudioRecorder:
                         
                         # 检测是否为静音
                         is_silence = self._check_silence(processed_chunk)
-                        if not is_silence:
+                        
+                        # 检测是否为人声（过滤非人声噪音）
+                        is_voice = self._is_voice(processed_chunk) if not is_silence else False
+                        
+                        if not is_silence and is_voice:
+                            # 有声音且是人声
                             self.last_audio_time = time.time()
                             self.consecutive_silence_chunks = 0  # 有声音，重置静音计数
                         else:
+                            # 静音或非人声噪音
                             self.consecutive_silence_chunks += 1  # 静音，增加计数
                         
                         # 检查是否应触发分段
