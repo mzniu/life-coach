@@ -163,8 +163,15 @@ class ASREngine:
                 for chunk in audio_chunks:
                     if isinstance(chunk, list):
                         audio_data.extend(chunk)
-                    else:
+                    elif isinstance(chunk, np.ndarray):
                         audio_data.extend(chunk.tolist())
+                    elif hasattr(chunk, 'tolist'):
+                        # 其他类数组对象
+                        audio_data.extend(chunk.tolist())
+                    else:
+                        # 单个数值，跳过
+                        print(f"[ASR警告] 跳过非数组类型: {type(chunk)}")
+                        continue
                 
                 # 转换为numpy数组并归一化到 [-1, 1]
                 audio_np = np.array(audio_data, dtype=np.float32)

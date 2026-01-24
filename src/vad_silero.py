@@ -123,7 +123,10 @@ class SileroVAD:
                     'duration': duration,
                     'sample_rate': self.sample_rate
                 }
-                self.on_segment_callback(segment.samples, metadata)
+                # 转换为numpy数组（sherpa_onnx返回的可能是特殊类型）
+                import numpy as np
+                samples_array = np.array(segment.samples, dtype=np.float32)
+                self.on_segment_callback(samples_array, metadata)
             
             # 重置分段开始时间
             self.segment_start_time = time.time()
