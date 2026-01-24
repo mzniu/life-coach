@@ -67,6 +67,7 @@ class AudioRecorder:
         self.max_segment_duration = REALTIME_MAX_SEGMENT_DURATION  # 从配置读取
         self.min_segment_duration = REALTIME_MIN_SEGMENT_DURATION  # 从配置读取
         self.segment_count = 0
+        self.consecutive_silence_chunks = 0  # 连续静音块计数
         
         if REAL_AUDIO:
             try:
@@ -160,13 +161,14 @@ class AudioRecorder:
             return False
             
         segment_duration = time.time() - self.segment_start_time
-        silence_duration = time.time() - self.last_audio_time
         
-        # 触发条件1: 静音超过阈值且分段时长足够
-        if silence_duration >= self.min_silence_duration and segment_duration >= self.min_segment_duration:
+        # 触发条件1: 连续静音chunk达到阈值（约0.8秒 = 8个100ms的chunk）
+        # 这样可以避免短暂噪音触发分段
+        min_silence_chunks = int(self.min_silence_duration / 0.1)  # 0.8s / 0.1s = 8
+        if self.consecutive_silence_chunks >= min_silence_chunks and segment_duration >= self.min_segment_duration:
             return True
             
-        # 触发条件2: 分段时长超过最大限制
+        # 触发条件2: 分段时长超过最大限制（强制分割）
         if segment_duration >= self.max_segment_duration:
             return True
             
@@ -224,9 +226,11 @@ class AudioRecorder:
             }
             self.segment_callback(segment_audio.copy(), metadata)
             
-            # 重置分段
+            # 重置分段状态
             self.current_segment = []
             self.segment_start_time = time.time()
+            self.last_audio_time = time.time()  # 重置，避免累积
+            self.consecutive_silence_chunks = 0  # 重置静音计数
             
         except Exception as e:
             print(f"[音频分段错误] {e}")
@@ -298,6 +302,9 @@ class AudioRecorder:
                         is_silence = self._check_silence(processed_chunk)
                         if not is_silence:
                             self.last_audio_time = time.time()
+                            self.consecutive_silence_chunks = 0  # 有声音，重置静音计数
+                        else:
+                            self.consecutive_silence_chunks += 1  # 静音，增加计数
                         
                         # 检查是否应触发分段
                         if self._should_trigger_segment():
