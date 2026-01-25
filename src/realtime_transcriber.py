@@ -140,13 +140,24 @@ class RealtimeTranscriber:
                 if queue_delay > self.stats['longest_delay']:
                     self.stats['longest_delay'] = queue_delay
                 
+                # 音频质量检查
+                import numpy as np
+                if isinstance(audio_segment, np.ndarray):
+                    rms = np.sqrt(np.mean(audio_segment ** 2))
+                    if rms < 0.001:
+                        print(f"[实时转录] 分段 #{segment_idx} 音量过低 (RMS={rms:.4f})，跳过")
+                        continue
+                
                 # 开始转录
                 start_time = time.time()
                 print(f"[实时转录] 开始转录分段 #{segment_idx}（排队: {queue_delay:.2f}秒）")
                 
                 try:
-                    # 调用ASR引擎转录
-                    result = self.asr_engine.transcribe_stream(audio_segment)
+                    # 调用ASR引擎转录（启用上下文）
+                    if hasattr(self.asr_engine, 'context_history'):
+                        result = self.asr_engine.transcribe_stream(audio_segment, use_context=True)
+                    else:
+                        result = self.asr_engine.transcribe_stream(audio_segment)
                     transcribe_time = time.time() - start_time
                     
                     # 提取文本

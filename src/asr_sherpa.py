@@ -7,6 +7,18 @@ import numpy as np
 from pathlib import Path
 from typing import Optional
 import time
+import os
+import sys
+
+# 导入配置
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from src.config import ASR_CONTEXT_SIZE, ASR_USE_CONTEXT
+    USE_CONFIG = True
+except ImportError:
+    ASR_CONTEXT_SIZE = 2
+    ASR_USE_CONTEXT = True
+    USE_CONFIG = False
 
 
 class SherpaASR:
@@ -16,7 +28,8 @@ class SherpaASR:
         self,
         model_dir: str = "models/sherpa/paraformer",
         sample_rate: int = 16000,
-        num_threads: int = 2
+        num_threads: int = 2,
+        context_size: int = None
     ):
         """
         初始化 Sherpa ASR
@@ -25,12 +38,18 @@ class SherpaASR:
             model_dir: 模型目录
             sample_rate: 音频采样率
             num_threads: 线程数
+            context_size: 保留前N个分段的上下文（None则使用配置文件）
         """
         import sherpa_onnx
         
         self.model_dir = Path(model_dir)
         self.sample_rate = sample_rate
         self.num_threads = num_threads
+        self.context_size = context_size if context_size is not None else ASR_CONTEXT_SIZE
+        self.use_context = ASR_USE_CONTEXT
+        
+        # 上下文管理
+        self.context_history = []  # 保存最近的识别结果
         
         # 检查模型文件
         self._check_model_files()
@@ -76,12 +95,13 @@ class SherpaASR:
         print(f"[ASR] 模型目录: {self.model_dir}")
         print(f"[ASR] 目录内容: {list(self.model_dir.glob('*'))}")
     
-    def transcribe(self, audio_data: np.ndarray) -> str:
+    def transcribe(self, audio_data: np.ndarray, use_context: bool = False) -> str:
         """
         识别完整音频（使用 Streaming Paraformer）
         
         Args:
             audio_data: 音频数据 (float32 或 int16)
+            use_context: 是否使用上下文提示
         
         Returns:
             识别文本
@@ -98,6 +118,13 @@ class SherpaASR:
         
         # 创建在线流
         stream = self.recognizer.create_stream()
+        
+        # 添加上下文提示（如果启用且有历史）
+        if use_context and self.context_history:
+            # 注意：Paraformer可能不直接支持hotwords，这里仅记录
+            context_text = ' '.join(self.context_history[-self.context_size:])
+            print(f"[ASR上下文] {context_text}")
+        
         stream.accept_waveform(self.sample_rate, audio_data)
         
         # 流式解码
@@ -106,7 +133,15 @@ class SherpaASR:
         
         # 获取结果（返回文本字符串）
         result = self.recognizer.get_result(stream)
-        return result.text if hasattr(result, 'text') else str(result)
+        text = result.text if hasattr(result, 'text') else str(result)
+        
+        # 更新上下文历史
+        if text.strip():
+            self.context_history.append(text.strip())
+            if len(self.context_history) > self.context_size:
+                self.context_history.pop(0)
+        
+        return text
     
     def transcribe_stream(
         self,

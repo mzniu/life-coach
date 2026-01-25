@@ -118,7 +118,25 @@ REALTIME_QUEUE_MAX_SIZE = int(os.getenv('REALTIME_QUEUE_MAX_SIZE', '10'))
 # 实时转录性能优化
 REALTIME_BEAM_SIZE = int(os.getenv('REALTIME_BEAM_SIZE', '3'))  # 降低beam size加速转录（准确度略降）
 
+# ==================== 音频预处理配置 ====================
+# 音频归一化
+AUDIO_NORMALIZE_ENABLED = os.getenv('AUDIO_NORMALIZE_ENABLED', 'true').lower() == 'true'  # 是否启用音量归一化
+AUDIO_NORMALIZE_TARGET = float(os.getenv('AUDIO_NORMALIZE_TARGET', '0.95'))  # 归一化目标幅度（0-1）
+
+# 音频降噪
+AUDIO_HIGHPASS_FILTER_ENABLED = os.getenv('AUDIO_HIGHPASS_FILTER_ENABLED', 'true').lower() == 'true'  # 是否启用高通滤波
+AUDIO_HIGHPASS_ALPHA = float(os.getenv('AUDIO_HIGHPASS_ALPHA', '0.95'))  # 高通滤波系数（0.9-0.99）
+
+# 音频质量检查
+AUDIO_MIN_RMS_THRESHOLD = float(os.getenv('AUDIO_MIN_RMS_THRESHOLD', '0.001'))  # 最小RMS阈值，低于此值视为静音
+AUDIO_MIN_PEAK_THRESHOLD = float(os.getenv('AUDIO_MIN_PEAK_THRESHOLD', '0.01'))  # 最小峰值阈值
+
+# ASR上下文配置
+ASR_CONTEXT_SIZE = int(os.getenv('ASR_CONTEXT_SIZE', '2'))  # 保留前N个分段的上下文
+ASR_USE_CONTEXT = os.getenv('ASR_USE_CONTEXT', 'true').lower() == 'true'  # 是否使用上下文提示
+
 print(f"[配置] 实时转录: {'启用' if REALTIME_TRANSCRIBE_ENABLED else '禁用'}, 静音阈值={REALTIME_SILENCE_THRESHOLD}, 触发时长={REALTIME_MIN_SILENCE_DURATION}s, 人声检测={'启用' if REALTIME_VOICE_DETECTION_ENABLED else '禁用'}")
+print(f"[配置] 音频处理: 归一化={'启用' if AUDIO_NORMALIZE_ENABLED else '禁用'}, 降噪={'启用' if AUDIO_HIGHPASS_FILTER_ENABLED else '禁用'}, 上下文大小={ASR_CONTEXT_SIZE}")
 
 # ==================== 显示参数 ====================
 # 中文字体路径（需安装 fonts-wqy-zenhei）

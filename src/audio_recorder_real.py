@@ -14,12 +14,22 @@ try:
     from src.config import (
         REALTIME_MIN_SILENCE_DURATION,
         REALTIME_MAX_SEGMENT_DURATION,
+        AUDIO_NORMALIZE_ENABLED,
+        AUDIO_NORMALIZE_TARGET,
+        AUDIO_HIGHPASS_FILTER_ENABLED,
+        AUDIO_HIGHPASS_ALPHA,
+        AUDIO_MIN_RMS_THRESHOLD,
     )
     USE_CONFIG = True
 except ImportError:
     # 默认值
     REALTIME_MIN_SILENCE_DURATION = 1.2
     REALTIME_MAX_SEGMENT_DURATION = 10.0
+    AUDIO_NORMALIZE_ENABLED = True
+    AUDIO_NORMALIZE_TARGET = 0.95
+    AUDIO_HIGHPASS_FILTER_ENABLED = True
+    AUDIO_HIGHPASS_ALPHA = 0.95
+    AUDIO_MIN_RMS_THRESHOLD = 0.001
     USE_CONFIG = False
 
 # 导入 Silero VAD
@@ -96,15 +106,56 @@ class AudioRecorder:
         else:
             print("[音频录制] 初始化模拟音频录制器")
         
+    def _preprocess_audio(self, audio_samples: np.ndarray) -> np.ndarray:
+        """音频预处理：降噪和归一化"""
+        # 1. 音量归一化（防止过小或过大）
+        if len(audio_samples) == 0:
+            return audio_samples
+        
+        if AUDIO_NORMALIZE_ENABLED:
+            max_abs = np.abs(audio_samples).max()
+            if max_abs > 0:
+                # 归一化到配置的目标幅度
+                audio_samples = audio_samples * (AUDIO_NORMALIZE_TARGET / max_abs)
+        
+        # 2. 简单的高通滤波去除低频噪声
+        if AUDIO_HIGHPASS_FILTER_ENABLED and len(audio_samples) > 1:
+            filtered = np.zeros_like(audio_samples)
+            filtered[0] = audio_samples[0]
+            for i in range(1, len(audio_samples)):
+                filtered[i] = AUDIO_HIGHPASS_ALPHA * (filtered[i-1] + audio_samples[i] - audio_samples[i-1])
+            return filtered
+        
+        return audio_samples
+    
     def _on_vad_segment(self, audio_samples: np.ndarray, metadata: dict):
         """VAD 分段回调"""
         self.segment_count += 1
+        
+        # 音频质量检查
+        rms = np.sqrt(np.mean(audio_samples ** 2))
+        peak = np.abs(audio_samples).max()
+        
+        print(f"[VAD分段] 第 {self.segment_count} 段: "
+              f"duration={metadata.get('duration', 0):.2f}s, "
+              f"samples={len(audio_samples)}, "
+              f"RMS={rms:.4f}, Peak={peak:.4f}")
+        
+        # 过滤静音片段（RMS过低）
+        if rms < AUDIO_MIN_RMS_THRESHOLD:
+            print(f"[VAD分段] 警告: 音量过低 (RMS={rms:.4f} < {AUDIO_MIN_RMS_THRESHOLD})，跳过该片段")
+            return
+        
+        # 音频预处理
+        processed_audio = self._preprocess_audio(audio_samples)
         
         # 调用外部回调
         if self.segment_callback:
             # 更新 metadata
             metadata['segment_index'] = self.segment_count
-            self.segment_callback(audio_samples, metadata)
+            metadata['rms'] = rms
+            metadata['peak'] = peak
+            self.segment_callback(processed_audio, metadata)
     
     def start(self):
         """开始录音"""

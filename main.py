@@ -170,20 +170,28 @@ class LifeCoachApp:
             audio_data = self.recorder.stop()
             
             # 停止实时转录器
+            has_realtime_text = False
             if self.realtime_transcriber and self.realtime_transcriber.is_running:
                 print("[实时转录] 停止实时转录器...")
                 self.realtime_transcriber.stop()
+                has_realtime_text = len(self.accumulated_text) > 0
+                print(f"[实时转录] 已累积文本: {len(self.accumulated_text)} 字")
             
             if self.display:
-                self.display.show_status(AppState.PROCESSING, "转写中...")
+                self.display.show_status(AppState.PROCESSING, "处理中...")
             
             self.state = AppState.PROCESSING
             self.recording_duration = self.recorder.get_duration()
             
-            api_server.broadcast_status_update(self.state, "正在转写...")
-            threading.Thread(target=self._transcribe_recording, args=(audio_data,), daemon=True).start()
-            
-            print(f"[录音] 停止录音，开始转写")
+            # 如果有实时转录结果，直接使用；否则需要转写整个音频
+            if has_realtime_text:
+                print(f"[录音] 停止录音，使用实时转录结果（跳过重新转写）")
+                api_server.broadcast_status_update(self.state, "正在纠错...")
+                threading.Thread(target=self._process_realtime_text, args=(audio_data,), daemon=True).start()
+            else:
+                print(f"[录音] 停止录音，开始完整转写")
+                api_server.broadcast_status_update(self.state, "正在转写...")
+                threading.Thread(target=self._transcribe_recording, args=(audio_data,), daemon=True).start()
             
             return {
                 "success": True,
@@ -354,10 +362,55 @@ class LifeCoachApp:
             
             time.sleep(1)
     
-    def _transcribe_recording(self, audio_data):
-        """转写录音"""
+    def _process_realtime_text(self, audio_data):
+        """处理实时转录的文本（仅纠错）"""
         try:
-            print(f"[转写] 开始转写...")
+            print(f"[处理] 使用实时转录文本，开始纠错...")
+            
+            # 使用累积的实时转录文本
+            content = self.accumulated_text
+            
+            # 进行文本纠错
+            correction_info = None
+            if self.asr.text_corrector is not None:
+                print(f"[纠错] 开始纠错实时转录文本...")
+                try:
+                    correction_result = self.asr.text_corrector.correct(content)
+                    
+                    if correction_result['success'] and correction_result['changed']:
+                        print(f"[纠错] 完成: {correction_result['time_ms']}ms")
+                        print(f"[纠错] 原文: {content}")
+                        print(f"[纠错] 纠正: {correction_result['corrected']}")
+                        content = correction_result['corrected']
+                        correction_info = {
+                            'applied': True,
+                            'changes': correction_result['changes'],
+                            'time_ms': correction_result['time_ms']
+                        }
+                    else:
+                        print(f"[纠错] 无需修改")
+                except Exception as e:
+                    print(f"[纠错警告] 纠错失败: {e}")
+            
+            self.word_count = len(content)
+            self._finish_recording(content, audio_data, correction_info)
+            
+        except Exception as e:
+            print(f"[错误] 处理实时转录文本失败: {e}")
+            self.state = AppState.ERROR
+            api_server.broadcast_error("处理失败", str(e))
+            
+            import time
+            time.sleep(5)
+            self.state = AppState.IDLE
+            api_server.broadcast_status_update(self.state, "就绪")
+            if self.display:
+                self.display.show_status(AppState.IDLE, "就绪")
+    
+    def _transcribe_recording(self, audio_data):
+        """转写录音（完整音频转写）"""
+        try:
+            print(f"[转写] 开始完整转写...")
             
             def progress_callback(percent, text=""):
                 if self.display:
