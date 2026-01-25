@@ -54,7 +54,7 @@ sudo apt-get update -qq
 # 安装系统依赖（检查是否已安装）
 echo "[2/6] 检查系统依赖..."
 PACKAGES_TO_INSTALL=""
-for pkg in python3 python3-pip python3-venv python3-dev portaudio19-dev libsndfile1 ffmpeg git curl libopenblas-dev; do
+for pkg in python3 python3-pip python3-venv python3-dev portaudio19-dev libsndfile1 ffmpeg git curl libopenblas-dev python3-pil fonts-wqy-microhei; do
     if ! dpkg -s $pkg >/dev/null 2>&1; then
         PACKAGES_TO_INSTALL="$PACKAGES_TO_INSTALL $pkg"
     fi
@@ -66,6 +66,23 @@ if [ -n "$PACKAGES_TO_INSTALL" ]; then
     echo "  ✓ 系统依赖安装完成"
 else
     echo "  ✓ 系统依赖已全部安装"
+fi
+
+# 检查显示库
+echo "[2.5/6] 检查显示库..."
+DISPLAY_PACKAGES_TO_INSTALL=""
+for pkg in python3-luma.oled python3-luma.lcd; do
+    if ! dpkg -s $pkg >/dev/null 2>&1; then
+        DISPLAY_PACKAGES_TO_INSTALL="$DISPLAY_PACKAGES_TO_INSTALL $pkg"
+    fi
+done
+
+if [ -n "$DISPLAY_PACKAGES_TO_INSTALL" ]; then
+    echo "  需要安装显示库:$DISPLAY_PACKAGES_TO_INSTALL"
+    sudo apt-get install -y -qq $DISPLAY_PACKAGES_TO_INSTALL
+    echo "  ✓ 显示库安装完成"
+else
+    echo "  ✓ 显示库已安装"
 fi
 
 # 创建Python虚拟环境
