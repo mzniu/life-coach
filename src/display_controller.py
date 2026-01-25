@@ -793,13 +793,20 @@ class DisplayController:
                 self._init_displays()
                 self._load_fonts()
                 
-                # 恢复LCD背光
+                # 恢复LCD背光和电源
                 if self.lcd_main:
                     try:
                         import subprocess
+                        # 方法1: 恢复背光电源 (0=FB_BLANK_UNBLANK)
+                        subprocess.run(['sudo', 'sh', '-c', 'echo 0 > /sys/class/backlight/rpi_backlight/bl_power'], 
+                                     check=False, capture_output=True, timeout=1)
+                        # 方法2: 设置亮度为1（最低可见亮度，避免刺眼）
+                        subprocess.run(['sudo', 'sh', '-c', 'echo 1 > /sys/class/backlight/rpi_backlight/brightness'], 
+                                     check=False, capture_output=True, timeout=1)
+                        # 方法3: 取消framebuffer blank
                         subprocess.run(['sudo', 'sh', '-c', 'echo 0 > /sys/class/graphics/fb1/blank'], 
                                      check=False, capture_output=True, timeout=1)
-                        print("[显示] LCD背光已开启", flush=True)
+                        print("[显示] LCD背光已开启 (bl_power=0, brightness=1, fb1/blank=0)", flush=True)
                     except Exception as e:
                         print(f"[显示] 开启LCD背光失败: {e}", flush=True)
                 
@@ -836,13 +843,19 @@ class DisplayController:
                     time.sleep(0.1)
                     self.lcd_main.display(img)
                     
-                    # 尝试关闭LCD背光
+                    # 关闭LCD背光和电源（多种方式确保关闭）
                     try:
-                        # 方法1: 通过fb1 blank控制
                         import subprocess
+                        # 方法1: 设置亮度为0
+                        subprocess.run(['sudo', 'sh', '-c', 'echo 0 > /sys/class/backlight/rpi_backlight/brightness'], 
+                                     check=False, capture_output=True, timeout=1)
+                        # 方法2: 关闭背光电源 (4=FB_BLANK_POWERDOWN)
+                        subprocess.run(['sudo', 'sh', '-c', 'echo 4 > /sys/class/backlight/rpi_backlight/bl_power'], 
+                                     check=False, capture_output=True, timeout=1)
+                        # 方法3: framebuffer blank (1=normal blank)
                         subprocess.run(['sudo', 'sh', '-c', 'echo 1 > /sys/class/graphics/fb1/blank'], 
                                      check=False, capture_output=True, timeout=1)
-                        print("[显示] LCD背光已关闭 (fb1/blank)", flush=True)
+                        print("[显示] LCD背光已完全关闭 (brightness=0, bl_power=4, fb1/blank=1)", flush=True)
                     except Exception as e:
                         print(f"[显示] 关闭LCD背光失败: {e}", flush=True)
                     
