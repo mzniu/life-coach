@@ -792,8 +792,8 @@ class DisplayController:
             try:
                 self._init_displays()
                 self._load_fonts()
-                self._show_startup_screens()
-                # 重启刷新线程
+                # 不显示启动画面，直接显示当前状态
+                # 刷新线程会自动更新内容
                 if not self.running:
                     self._start_lcd_refresh()
             except Exception as e:
