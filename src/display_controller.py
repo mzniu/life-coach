@@ -792,6 +792,17 @@ class DisplayController:
             try:
                 self._init_displays()
                 self._load_fonts()
+                
+                # 恢复LCD背光
+                if self.lcd_main:
+                    try:
+                        import subprocess
+                        subprocess.run(['sudo', 'sh', '-c', 'echo 0 > /sys/class/graphics/fb1/blank'], 
+                                     check=False, capture_output=True, timeout=1)
+                        print("[显示] LCD背光已开启", flush=True)
+                    except Exception as e:
+                        print(f"[显示] 开启LCD背光失败: {e}", flush=True)
+                
                 # 不显示启动画面，直接显示当前状态
                 # 刷新线程会自动更新内容
                 if not self.running:
@@ -805,20 +816,41 @@ class DisplayController:
             # 清空屏幕
             try:
                 if self.oled_status:
+                    print("[显示] 清空OLED状态屏", flush=True)
                     from luma.core.render import canvas
                     with canvas(self.oled_status) as draw:
                         draw.rectangle(self.oled_status.bounding_box, outline="black", fill="black")
                 
                 if self.oled_stats:
+                    print("[显示] 清空OLED统计屏", flush=True)
                     from luma.core.render import canvas
                     with canvas(self.oled_stats) as draw:
                         draw.rectangle(self.oled_stats.bounding_box, outline="black", fill="black")
                 
                 if self.lcd_main:
+                    print(f"[显示] 清空LCD主屏 ({self.lcd_main.width}x{self.lcd_main.height})", flush=True)
+                    # 创建全黑图像
                     img = Image.new('RGB', (self.lcd_main.width, self.lcd_main.height), color=(0, 0, 0))
+                    # 多次写入确保清空
                     self.lcd_main.display(img)
+                    time.sleep(0.1)
+                    self.lcd_main.display(img)
+                    
+                    # 尝试关闭LCD背光
+                    try:
+                        # 方法1: 通过fb1 blank控制
+                        import subprocess
+                        subprocess.run(['sudo', 'sh', '-c', 'echo 1 > /sys/class/graphics/fb1/blank'], 
+                                     check=False, capture_output=True, timeout=1)
+                        print("[显示] LCD背光已关闭 (fb1/blank)", flush=True)
+                    except Exception as e:
+                        print(f"[显示] 关闭LCD背光失败: {e}", flush=True)
+                    
+                    print("[显示] LCD已清空", flush=True)
             except Exception as e:
-                print(f"[显示] 关闭时清空屏幕失败: {e}")
+                print(f"[显示] 关闭时清空屏幕失败: {e}", flush=True)
+                import traceback
+                traceback.print_exc()
         
         return self.enabled
     
