@@ -16,6 +16,14 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 from src.config import *
 from src import api_server
 
+# 尝试导入psutil用于系统监控
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    print("[警告] psutil未安装，系统监控功能将被禁用")
+
 class LifeCoachApp:
     """Life Coach 主应用管理器"""
     
@@ -33,6 +41,11 @@ class LifeCoachApp:
         self.storage = None
         self.realtime_transcriber = None  # 实时转录管理器
         self.accumulated_text = ""  # 实时累积的文本
+        
+        # 统计信息
+        self.today_count = 0  # 今日录音次数
+        self.today_duration = 0  # 今日录音时长(秒)
+        self.last_transcript = ""  # 最近一次转录内容
         
         print("[主程序] Life Coach 初始化...")
         self._init_modules()
@@ -280,6 +293,11 @@ class LifeCoachApp:
         self.state = AppState.DONE
         api_server.broadcast_status_update(self.state, f"已保存 共{self.word_count}字")
         
+        # 更新今日统计和最近转录
+        self.today_count += 1
+        self.today_duration += self.recording_duration
+        self.last_transcript = content[:50] if content else ""
+        
         # 3秒后自动重置为待机状态
         import time
         time.sleep(3)
@@ -287,6 +305,8 @@ class LifeCoachApp:
         api_server.broadcast_status_update(self.state, "就绪")
         if self.display:
             self.display.update_status("就绪")
+            # 切换回仪表盘模式
+            self.display.switch_to_dashboard_mode()
     
     def get_recordings(self, date=None, limit=10):
         """获取录音列表"""
@@ -521,10 +541,84 @@ class LifeCoachApp:
         print("[主程序] 已关闭")
         os._exit(0)
     
+    def _get_system_stats(self):
+        """获取系统统计信息"""
+        stats = {
+            'recording_status': '待机',
+            'duration': 0,
+            'word_count': 0,
+            'cpu_temp': 0,
+            'memory_usage': 0,
+            'today_count': self.today_count,
+            'today_duration': self.today_duration,
+            'last_transcript': self.last_transcript
+        }
+        
+        # 更新录音状态
+        if self.state == AppState.RECORDING:
+            stats['recording_status'] = '录音中'
+            stats['duration'] = self.recording_duration
+            stats['word_count'] = self.word_count
+        elif self.state == AppState.PROCESSING:
+            stats['recording_status'] = '处理中'
+        elif self.state == AppState.DONE:
+            stats['recording_status'] = '已完成'
+            stats['word_count'] = self.word_count
+        
+        # CPU温度
+        if PSUTIL_AVAILABLE:
+            try:
+                # 树莓派CPU温度
+                if os.path.exists('/sys/class/thermal/thermal_zone0/temp'):
+                    with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
+                        temp = int(f.read().strip()) / 1000
+                        stats['cpu_temp'] = temp
+                else:
+                    # 其他系统尝试用psutil
+                    temps = psutil.sensors_temperatures()
+                    if temps:
+                        for name, entries in temps.items():
+                            if entries:
+                                stats['cpu_temp'] = entries[0].current
+                                break
+            except Exception as e:
+                pass
+        
+        # 内存使用率
+        if PSUTIL_AVAILABLE:
+            try:
+                mem = psutil.virtual_memory()
+                stats['memory_usage'] = mem.percent
+            except Exception as e:
+                pass
+        
+        return stats
+    
+    def _update_today_stats(self):
+        """更新今日统计信息（从存储中读取）"""
+        try:
+            today = datetime.now().strftime('%Y-%m-%d')
+            recordings = self.storage.query(date=today, limit=100)
+            
+            self.today_count = len(recordings)
+            self.today_duration = sum(r.get('duration', 0) for r in recordings)
+            
+            # 获取最近一次转录
+            if recordings:
+                latest = recordings[0]  # 假设按时间倒序
+                self.last_transcript = latest.get('content', '')[:50]  # 截取前50字符
+        except Exception as e:
+            print(f"[统计] 更新今日统计失败: {e}")
+    
     def run(self):
         """启动主循环"""
         print("[主程序] 启动主循环...")
         print("[按钮] K1=开始/停止录音, K4长按3秒=退出")
+        
+        # 初始更新统计信息
+        self._update_today_stats()
+        
+        last_stats_update = 0  # 上次更新统计的时间
         
         try:
             while True:
@@ -557,6 +651,21 @@ class LifeCoachApp:
                     print("[按钮] K4长按触发，准备退出...")
                     self.shutdown()
                     break
+                
+                # 定期更新仪表盘统计信息 (每5秒)
+                current_time = time.time()
+                if current_time - last_stats_update >= 5:
+                    last_stats_update = current_time
+                    
+                    # 重新加载今日统计（可能有新的录音）
+                    self._update_today_stats()
+                    
+                    # 获取系统统计
+                    stats = self._get_system_stats()
+                    
+                    # 更新仪表盘显示
+                    if self.display and self.display.enabled:
+                        self.display.update_dashboard(**stats)
                 
                 time.sleep(0.05)
                 

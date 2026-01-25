@@ -73,10 +73,18 @@ class DisplayController:
         self.stats_data = {}
         self.transcript_lines = []
         self.max_transcript_lines = 10  # LCD显示最多10行文本
+        self.lcd_mode = "dashboard"  # dashboard=仪表盘模式, transcript=转录模式
+        self.dashboard_stats = {}  # 仪表盘统计数据
+        
+        # LCD刷新定时器
+        self.lcd_refresh_interval = 3  # 每3秒刷新一次
+        self.lcd_refresh_thread = None
+        self.running = False
         
         if self.enabled:
             self._init_displays()
             self._load_fonts()
+            self._start_lcd_refresh()
         else:
             print("显示功能已禁用")
     
@@ -215,6 +223,26 @@ class DisplayController:
                 'lcd_medium': ImageFont.load_default(),
                 'lcd_large': ImageFont.load_default(),
             }
+    
+    def _start_lcd_refresh(self):
+        """启动LCD定时刷新线程"""
+        import threading
+        self.running = True
+        self.lcd_refresh_thread = threading.Thread(target=self._lcd_refresh_loop, daemon=True)
+        self.lcd_refresh_thread.start()
+        print("[LCD] 刷新线程已启动")
+    
+    def _lcd_refresh_loop(self):
+        """LCD定时刷新循环"""
+        import time
+        while self.running:
+            try:
+                if self.lcd_mode == "dashboard":
+                    self.update_dashboard()
+                time.sleep(self.lcd_refresh_interval)
+            except Exception as e:
+                print(f"[LCD] 刷新错误: {e}")
+                time.sleep(5)
     
     def _show_startup_screens(self):
         """显示启动画面"""
@@ -460,8 +488,10 @@ class DisplayController:
             append: True=追加文本, False=清空后显示新文本
         """
         if not self.enabled or not self.lcd_main:
-            return
-        
+            return        
+        # 自动切换到转录模式
+        if self.lcd_mode != "transcript":
+            self.switch_to_transcript_mode()        
         try:
             with self.lock:
                 if append:
@@ -541,6 +571,148 @@ class DisplayController:
             self.transcript_lines = []
             if self.lcd_main:
                 self._render_transcript()
+    
+    def update_dashboard(self, **stats):
+        """
+        更新LCD仪表盘显示
+        
+        Args:
+            **stats: 统计数据
+                - recording_status: str, 录音状态
+                - duration: int, 持续时长(秒)
+                - word_count: int, 字数统计
+                - cpu_temp: float, CPU温度
+                - memory_usage: float, 内存使用率(%)
+                - today_count: int, 今日录音次数
+                - today_duration: int, 今日录音时长(秒)
+                - last_transcript: str, 最近转录内容
+        """
+        if not self.enabled or not self.lcd_main:
+            return
+        
+        try:
+            with self.lock:
+                # 更新统计数据
+                self.dashboard_stats.update(stats)
+                
+                # 获取数据
+                status = self.dashboard_stats.get('recording_status', '待机')
+                duration = self.dashboard_stats.get('duration', 0)
+                word_count = self.dashboard_stats.get('word_count', 0)
+                cpu_temp = self.dashboard_stats.get('cpu_temp', 0)
+                memory = self.dashboard_stats.get('memory_usage', 0)
+                today_count = self.dashboard_stats.get('today_count', 0)
+                today_duration = self.dashboard_stats.get('today_duration', 0)
+                last_text = self.dashboard_stats.get('last_transcript', '')
+                
+                # 创建图像
+                img = Image.new('RGB', (self.lcd_main.width, self.lcd_main.height), 
+                               color=(0, 15, 30))  # 深蓝色背景
+                draw = ImageDraw.Draw(img)
+                
+                # ===== 顶部标题栏 =====
+                draw.rectangle([(0, 0), (240, 35)], fill=(20, 40, 80))
+                draw.text((50, 8), "Life Coach", fill=(255, 255, 255), 
+                         font=self.fonts.get('lcd_medium'))
+                current_time = datetime.now().strftime("%H:%M:%S")
+                draw.text((160, 12), current_time, fill=(200, 200, 200), 
+                         font=self.fonts.get('lcd_small'))
+                
+                # ===== 左侧状态区 =====
+                y = 45
+                draw.text((10, y), "录音状态", fill=(150, 150, 150), 
+                         font=self.fonts.get('lcd_small'))
+                status_color = (100, 255, 100) if status == '录音中' else (200, 200, 200)
+                draw.text((90, y), status, fill=status_color, 
+                         font=self.fonts.get('lcd_small'))
+                
+                y += 22
+                draw.text((10, y), "持续时长", fill=(150, 150, 150), 
+                         font=self.fonts.get('lcd_small'))
+                mins, secs = divmod(duration, 60)
+                draw.text((90, y), f"{mins:02d}:{secs:02d}", fill=(200, 200, 200), 
+                         font=self.fonts.get('lcd_small'))
+                
+                y += 22
+                draw.text((10, y), "字数统计", fill=(150, 150, 150), 
+                         font=self.fonts.get('lcd_small'))
+                draw.text((90, y), f"{word_count}字", fill=(200, 200, 200), 
+                         font=self.fonts.get('lcd_small'))
+                
+                y += 22
+                draw.text((10, y), "CPU温度", fill=(150, 150, 150), 
+                         font=self.fonts.get('lcd_small'))
+                temp_color = (255, 100, 100) if cpu_temp > 70 else (200, 200, 200)
+                draw.text((90, y), f"{cpu_temp:.1f}°C", fill=temp_color, 
+                         font=self.fonts.get('lcd_small'))
+                
+                y += 22
+                draw.text((10, y), "内存使用", fill=(150, 150, 150), 
+                         font=self.fonts.get('lcd_small'))
+                draw.text((90, y), f"{memory:.0f}%", fill=(200, 200, 200), 
+                         font=self.fonts.get('lcd_small'))
+                
+                # ===== 分隔线 =====
+                draw.line([(5, 175), (235, 175)], fill=(60, 80, 120), width=2)
+                
+                # ===== 中部最近转录 =====
+                y = 185
+                draw.text((10, y), "最近一次转录:", fill=(255, 200, 100), 
+                         font=self.fonts.get('lcd_small'))
+                
+                if last_text:
+                    # 自动换行显示
+                    y += 18
+                    lines = self._wrap_text_lcd(last_text, max_chars=18)
+                    for i, line in enumerate(lines[:2]):  # 最多显示2行
+                        draw.text((10, y + i*18), line, fill=(200, 200, 200), 
+                                 font=self.fonts.get('lcd_small'))
+                else:
+                    y += 18
+                    draw.text((10, y), "暂无内容", fill=(150, 150, 150), 
+                             font=self.fonts.get('lcd_small'))
+                
+                # ===== 底部统计栏 =====
+                draw.rectangle([(0, 280), (240, 320)], fill=(20, 40, 80))
+                today_mins = today_duration // 60
+                draw.text((15, 290), f"今日 {today_count}次/{today_mins}分钟", 
+                         fill=(100, 200, 255), font=self.fonts.get('lcd_small'))
+                
+                self.lcd_main.display(img)
+                
+        except Exception as e:
+            print(f"更新仪表盘失败: {e}")
+    
+    def _wrap_text_lcd(self, text, max_chars=18):
+        """LCD文本自动换行（按字符数）"""
+        lines = []
+        current_line = ""
+        
+        for char in text:
+            if len(current_line) >= max_chars or char == '\n':
+                if current_line:
+                    lines.append(current_line)
+                current_line = char if char != '\n' else ""
+            else:
+                current_line += char
+        
+        if current_line:
+            lines.append(current_line)
+        
+        return lines
+    
+    def switch_to_transcript_mode(self):
+        """切换到转录模式"""
+        with self.lock:
+            self.lcd_mode = "transcript"
+            print("[LCD] 切换到转录模式")
+    
+    def switch_to_dashboard_mode(self):
+        """切换到仪表盘模式"""
+        with self.lock:
+            self.lcd_mode = "dashboard"
+            self.update_dashboard()  # 立即刷新
+            print("[LCD] 切换到仪表盘模式")
     
     def show_message(self, title, message, duration=3):
         """
