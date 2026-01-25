@@ -594,11 +594,11 @@ class DisplayController:
         if not self.enabled or not self.lcd_main:
             return
         
-        # 更新统计数据
+        # 更新统计数据（不持有锁调用刷新）
         with self.lock:
             self.dashboard_stats.update(stats)
         
-        # 刷新显示
+        # 刷新显示（在锁外调用，避免死锁）
         self._refresh_dashboard_display()
     
     def _refresh_dashboard_display(self):

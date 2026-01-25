@@ -75,24 +75,13 @@ class ButtonHandler:
         print("[GPIO] K4 按下 - 切换显示")
     
     def _monitor_loop(self):
-        """监控线程 - 检测长按"""
+        """监控线程"""
         while self.running:
             try:
-                # 检测K4长按
-                if self.use_gpio and GPIO.input(GPIO_K4) == GPIO.LOW:
-                    if self.k4_long_press_start is None:
-                        self.k4_long_press_start = time.time()
-                else:
-                    self.k4_long_press_start = None
-                
                 time.sleep(0.1)
             except Exception as e:
                 print(f"[GPIO] 监控线程错误: {e}")
                 time.sleep(1)
-        
-    def _k4_callback(self, channel):
-        """K4按钮中断回调 - 屏幕开关"""
-        self.k4_pressed_flag = True
     
     def k1_pressed(self):
         """检测K1按键是否按下（边缘触发，仅返回一次）"""
@@ -101,14 +90,11 @@ class ButtonHandler:
             return True
         return False
     
-    def k4_long_pressed(self):
-        """检测K4长按（3秒）"""
-        if self.k4_long_press_start is not None:
-            current_time = time.time()
-            if current_time - self.k4_long_press_start >= 3.0:
-                self.k4_long_press_start = None
-                self.k4_pressed_flag = False
-                return True
+    def k4_pressed(self):
+        """检测K4按键是否按下（边缘触发，仅返回一次）"""
+        if self.k4_pressed_flag:
+            self.k4_pressed_flag = False
+            return True
         return False
         
     def simulate_k1_press(self):
