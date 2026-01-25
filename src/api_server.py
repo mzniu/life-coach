@@ -804,6 +804,8 @@ def broadcast_realtime_transcript(segment, full_text, segment_index, transcribe_
     # 更新LCD主屏显示转录文本
     if display.enabled and segment:
         display.update_transcript(segment, append=True)
+        # 同时更新OLED #2显示最新转录内容
+        display.update_stats(transcript_text=full_text)
 def broadcast_log(message, level='info'):
     """广播日志消息到前端"""
     socketio.emit('log_message', {

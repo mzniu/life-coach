@@ -132,7 +132,7 @@ class LifeCoachApp:
             self.recorder.start()
             
             if self.display:
-                self.display.show_status(AppState.RECORDING, "录音中...")
+                self.display.update_status("录音中", recording=True)
             
             self.state = AppState.RECORDING
             self.recording_duration = 0
@@ -182,7 +182,7 @@ class LifeCoachApp:
                 print(f"[实时转录] 已累积文本: {len(self.accumulated_text)} 字")
             
             if self.display:
-                self.display.show_status(AppState.PROCESSING, "处理中...")
+                self.display.update_status("处理中")
             
             self.state = AppState.PROCESSING
             self.recording_duration = self.recorder.get_duration()
@@ -228,7 +228,7 @@ class LifeCoachApp:
             self.recorder.cancel()
             
             if self.display:
-                self.display.show_status(AppState.IDLE, "已取消")
+                self.display.update_status("已取消")
             
             self.state = AppState.IDLE
             self.recording_id = None
@@ -268,7 +268,7 @@ class LifeCoachApp:
                 print(f"[错误] 保存音频文件失败: {e}")
         
         if self.display:
-            self.display.show_status(AppState.DONE, f"已保存 {self.word_count}字")
+            self.display.update_status("已完成", detail=f"已保存 {self.word_count}字")
         
         api_server.broadcast_recording_complete(
             self.recording_id,
@@ -286,7 +286,7 @@ class LifeCoachApp:
         self.state = AppState.IDLE
         api_server.broadcast_status_update(self.state, "就绪")
         if self.display:
-            self.display.show_status(AppState.IDLE, "就绪")
+            self.display.update_status("就绪")
     
     def get_recordings(self, date=None, limit=10):
         """获取录音列表"""
@@ -409,7 +409,7 @@ class LifeCoachApp:
             self.state = AppState.IDLE
             api_server.broadcast_status_update(self.state, "就绪")
             if self.display:
-                self.display.show_status(AppState.IDLE, "就绪")
+                self.display.update_status("就绪")
     
     def _transcribe_recording(self, audio_data):
         """转写录音（完整音频转写）"""
@@ -455,7 +455,7 @@ class LifeCoachApp:
             self.state = AppState.IDLE
             api_server.broadcast_status_update(self.state, "就绪")
             if self.display:
-                self.display.show_status(AppState.IDLE, "就绪")
+                self.display.update_status("就绪")
     
     def _on_audio_segment(self, audio_segment, metadata):
         """音频分段回调 - 将音频段添加到转录队列"""
@@ -523,9 +523,40 @@ class LifeCoachApp:
     def run(self):
         """启动主循环"""
         print("[主程序] 启动主循环...")
+        print("[按钮] K1=开始/停止录音, K4长按3秒=退出")
         
         try:
             while True:
+                # 检测K1按钮 - 开始/停止录音
+                if self.buttons.k1_pressed():
+                    print(f"[按钮] K1触发，当前状态: {self.state}")
+                    
+                    if self.state == AppState.IDLE:
+                        # 开始录音
+                        print("[按钮] 触发开始录音")
+                        try:
+                            result = self.start_recording()
+                            if result.get('success'):
+                                print(f"[按钮] 录音已开始: {result.get('recording_id')}")
+                        except Exception as e:
+                            print(f"[按钮] 启动录音失败: {e}")
+                    
+                    elif self.state == AppState.RECORDING:
+                        # 停止录音
+                        print("[按钮] 触发停止录音")
+                        try:
+                            result = self.stop_recording()
+                            if result.get('success'):
+                                print(f"[按钮] 录音已停止")
+                        except Exception as e:
+                            print(f"[按钮] 停止录音失败: {e}")
+                
+                # 检测K4长按 - 退出程序
+                if self.buttons.k4_long_pressed():
+                    print("[按钮] K4长按触发，准备退出...")
+                    self.shutdown()
+                    break
+                
                 time.sleep(0.05)
                 
         except KeyboardInterrupt:

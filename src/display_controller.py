@@ -27,6 +27,17 @@ try:
     from luma.core.render import canvas
     from luma.oled.device import ssd1306
     from luma.lcd.device import st7789
+    try:
+        # framebuffer可能在不同位置
+        from luma.core.framebuffer import full_frame
+        FRAMEBUFFER_AVAILABLE = True
+    except ImportError:
+        try:
+            from PIL import Image
+            import mmap
+            FRAMEBUFFER_AVAILABLE = True
+        except ImportError:
+            FRAMEBUFFER_AVAILABLE = False
     DISPLAY_AVAILABLE = True
 except ImportError:
     DISPLAY_AVAILABLE = False
@@ -84,18 +95,67 @@ class DisplayController:
             self.oled_stats = ssd1306(serial_stats, width=128, height=64)
             print("✓ OLED统计屏初始化成功")
             
-            # 初始化LCD主屏 (SPI)
-            print("正在初始化LCD主屏 (SPI)...")
-            # 引脚定义: DC=15, RST=13, SPI port=0, device=0
-            serial_lcd = spi(port=0, device=0, gpio_DC=15, gpio_RST=13)
-            self.lcd_main = st7789(
-                serial_lcd, 
-                width=240, 
-                height=320,
-                rotate=0,  # 0/1/2/3 对应 0°/90°/180°/270°
-                bgr=True
-            )
-            print("✓ LCD主屏初始化成功")
+            # 初始化LCD主屏
+            print("正在初始化LCD主屏...")
+            try:
+                # 方法1：尝试使用framebuffer方式 (fbtft驱动)
+                if os.path.exists('/dev/fb1'):
+                    print("检测到framebuffer设备，使用fbtft方式")
+                    # 创建framebuffer类包装
+                    class FramebufferDevice:
+                        def __init__(self, device_path, width, height):
+                            self.device_path = device_path
+                            self.width = width
+                            self.height = height
+                            self.size = (width, height)
+                            self.mode = 'RGB'
+                            
+                        def display(self, image):
+                            """将PIL Image写入framebuffer (RGB565格式)"""
+                            try:
+                                # 转换为RGB格式
+                                if image.mode != 'RGB':
+                                    image = image.convert('RGB')
+                                # 确保尺寸正确
+                                if image.size != self.size:
+                                    image = image.resize(self.size)
+                                
+                                # 转换为RGB565格式
+                                # RGB888 (24位) -> RGB565 (16位)
+                                pixels = image.load()
+                                rgb565_data = bytearray()
+                                for y in range(self.height):
+                                    for x in range(self.width):
+                                        r, g, b = pixels[x, y]
+                                        # RGB888 -> RGB565: RRRRRGGGGGGBBBBB
+                                        rgb565 = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+                                        # Little endian
+                                        rgb565_data.append(rgb565 & 0xFF)
+                                        rgb565_data.append((rgb565 >> 8) & 0xFF)
+                                
+                                # 写入framebuffer
+                                with open(self.device_path, 'wb') as fb:
+                                    fb.write(bytes(rgb565_data))
+                            except Exception as e:
+                                print(f"Framebuffer写入失败: {e}")
+                    
+                    self.lcd_main = FramebufferDevice('/dev/fb1', width=240, height=320)
+                    print("✓ LCD主屏初始化成功 (framebuffer)")
+                else:
+                    # 方法2：使用标准SPI设备
+                    print("使用标准SPI方式")
+                    serial_lcd = spi(port=0, device=0, gpio_DC=15, gpio_RST=13)
+                    self.lcd_main = st7789(
+                        serial_lcd, 
+                        width=240, 
+                        height=320,
+                        rotate=0,
+                        bgr=True
+                    )
+                    print("✓ LCD主屏初始化成功 (SPI)")
+            except Exception as e:
+                print(f"LCD初始化失败: {e}")
+                self.lcd_main = None
             
             # 显示启动画面
             self._show_startup_screens()
@@ -258,16 +318,84 @@ class DisplayController:
     
     def update_stats(self, **stats):
         """
-        更新统计屏 (OLED #2)
+        更新统计屏 (OLED #2) - 显示实时转录文本
         
         Args:
-            **stats: 统计信息
-                - total_recordings: int, 总录音数
-                - total_duration: float, 总录音时长(秒)
-                - total_words: int, 总字数
-                - cpu_usage: float, CPU使用率(%)
-                - memory_usage: float, 内存使用率(%)
-                - disk_usage: float, 磁盘使用率(%)
+            **stats: 统计信息（保留兼容性，但主要用于显示转录文本）
+                - transcript_text: str, 实时转录文本
+                - recording_count: int, 录音次数
+        """
+        if not self.enabled or not self.oled_stats:
+            return
+        
+        try:
+            with self.lock:
+                self.stats_data.update(stats)
+                
+                # 获取转录文本
+                transcript = self.stats_data.get('transcript_text', '')
+                recording_count = self.stats_data.get('recording_count', 0)
+                
+                with canvas(self.oled_stats) as draw:
+                    # 清屏
+                    draw.rectangle(self.oled_stats.bounding_box, outline="white", fill="black")
+                    
+                    if transcript:
+                        # 显示实时转录
+                        draw.text((5, 2), "实时转录", fill="white", 
+                                 font=self.fonts.get('oled_small'))
+                        draw.line([(0, 14), (128, 14)], fill="white", width=1)
+                        
+                        # 文本自动换行显示
+                        lines = self._wrap_text_oled(transcript, max_width=12)
+                        y = 18
+                        line_height = 12
+                        max_lines = 4  # OLED只显示4行
+                        
+                        for i, line in enumerate(lines[-max_lines:]):
+                            if y + line_height <= 64:
+                                draw.text((2, y), line, fill="white", 
+                                         font=self.fonts.get('oled_small'))
+                                y += line_height
+                    else:
+                        # 无转录内容时显示提示
+                        draw.text((10, 15), "等待转录...", fill="white", 
+                                 font=self.fonts.get('oled_medium'))
+                        
+                        # 显示录音次数
+                        if recording_count > 0:
+                            draw.text((20, 40), f"已录音 {recording_count} 次", 
+                                     fill="white", font=self.fonts.get('oled_small'))
+                    
+                    # 显示当前时间
+                    current_time = datetime.now().strftime("%H:%M")
+                    draw.text((88, 54), current_time, fill="white", 
+                             font=self.fonts.get('oled_small'))
+                    
+        except Exception as e:
+            print(f"更新转录屏失败: {e}")
+    
+    def _wrap_text_oled(self, text, max_width=12):
+        """OLED文本自动换行（按字符数）"""
+        lines = []
+        current_line = ""
+        
+        for char in text:
+            if len(current_line) >= max_width or char == '\n':
+                if current_line:
+                    lines.append(current_line)
+                current_line = char if char != '\n' else ""
+            else:
+                current_line += char
+        
+        if current_line:
+            lines.append(current_line)
+        
+        return lines
+    
+    def update_stats_old(self, **stats):
+        """
+        旧版本统计屏显示（备用）
         """
         if not self.enabled or not self.oled_stats:
             return
