@@ -238,7 +238,8 @@ class DisplayController:
         print("[LCD] 刷新循环已启动", flush=True)
         while self.running:
             try:
-                if self.lcd_mode == "dashboard":
+                # 只在显示开启时刷新
+                if self.enabled and self.lcd_mode == "dashboard":
                     # 只刷新显示，不更新数据（数据由主循环更新）
                     self._refresh_dashboard_display()
                 time.sleep(self.lcd_refresh_interval)
@@ -603,6 +604,7 @@ class DisplayController:
     
     def _refresh_dashboard_display(self):
         """刷新仪表盘显示（使用当前缓存的数据）"""
+        # 显示关闭时不刷新
         if not self.enabled or not self.lcd_main:
             return
         
