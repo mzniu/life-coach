@@ -239,7 +239,8 @@ class DisplayController:
         while self.running:
             try:
                 if self.lcd_mode == "dashboard":
-                    self.update_dashboard()
+                    # 只刷新显示，不更新数据（数据由主循环更新）
+                    self._refresh_dashboard_display()
                 time.sleep(self.lcd_refresh_interval)
             except Exception as e:
                 print(f"[LCD] 刷新错误: {e}", flush=True)
@@ -577,7 +578,7 @@ class DisplayController:
     
     def update_dashboard(self, **stats):
         """
-        更新LCD仪表盘显示
+        更新LCD仪表盘数据并刷新显示
         
         Args:
             **stats: 统计数据
@@ -593,12 +594,21 @@ class DisplayController:
         if not self.enabled or not self.lcd_main:
             return
         
+        # 更新统计数据
+        with self.lock:
+            self.dashboard_stats.update(stats)
+        
+        # 刷新显示
+        self._refresh_dashboard_display()
+    
+    def _refresh_dashboard_display(self):
+        """刷新仪表盘显示（使用当前缓存的数据）"""
+        if not self.enabled or not self.lcd_main:
+            return
+        
         try:
             with self.lock:
-                # 更新统计数据
-                self.dashboard_stats.update(stats)
-                
-                # 获取数据
+                # 获取数据（使用缓存的数据）
                 status = self.dashboard_stats.get('recording_status', '待机')
                 duration = self.dashboard_stats.get('duration', 0)
                 word_count = self.dashboard_stats.get('word_count', 0)
@@ -607,84 +617,84 @@ class DisplayController:
                 today_count = self.dashboard_stats.get('today_count', 0)
                 today_duration = self.dashboard_stats.get('today_duration', 0)
                 last_text = self.dashboard_stats.get('last_transcript', '')
-                
-                # 创建图像
-                img = Image.new('RGB', (self.lcd_main.width, self.lcd_main.height), 
-                               color=(0, 15, 30))  # 深蓝色背景
-                draw = ImageDraw.Draw(img)
-                
-                # ===== 顶部标题栏 =====
-                draw.rectangle([(0, 0), (240, 35)], fill=(20, 40, 80))
-                draw.text((50, 8), "Life Coach", fill=(255, 255, 255), 
-                         font=self.fonts.get('lcd_medium'))
-                current_time = datetime.now().strftime("%H:%M:%S")
-                draw.text((160, 12), current_time, fill=(200, 200, 200), 
-                         font=self.fonts.get('lcd_small'))
-                
-                # ===== 左侧状态区 =====
-                y = 45
-                draw.text((10, y), "录音状态", fill=(150, 150, 150), 
-                         font=self.fonts.get('lcd_small'))
-                status_color = (100, 255, 100) if status == '录音中' else (200, 200, 200)
-                draw.text((90, y), status, fill=status_color, 
-                         font=self.fonts.get('lcd_small'))
-                
-                y += 22
-                draw.text((10, y), "持续时长", fill=(150, 150, 150), 
-                         font=self.fonts.get('lcd_small'))
-                mins, secs = divmod(duration, 60)
-                draw.text((90, y), f"{mins:02d}:{secs:02d}", fill=(200, 200, 200), 
-                         font=self.fonts.get('lcd_small'))
-                
-                y += 22
-                draw.text((10, y), "字数统计", fill=(150, 150, 150), 
-                         font=self.fonts.get('lcd_small'))
-                draw.text((90, y), f"{word_count}字", fill=(200, 200, 200), 
-                         font=self.fonts.get('lcd_small'))
-                
-                y += 22
-                draw.text((10, y), "CPU温度", fill=(150, 150, 150), 
-                         font=self.fonts.get('lcd_small'))
-                temp_color = (255, 100, 100) if cpu_temp > 70 else (200, 200, 200)
-                draw.text((90, y), f"{cpu_temp:.1f}°C", fill=temp_color, 
-                         font=self.fonts.get('lcd_small'))
-                
-                y += 22
-                draw.text((10, y), "内存使用", fill=(150, 150, 150), 
-                         font=self.fonts.get('lcd_small'))
-                draw.text((90, y), f"{memory:.0f}%", fill=(200, 200, 200), 
-                         font=self.fonts.get('lcd_small'))
-                
-                # ===== 分隔线 =====
-                draw.line([(5, 175), (235, 175)], fill=(60, 80, 120), width=2)
-                
-                # ===== 中部最近转录 =====
-                y = 185
-                draw.text((10, y), "最近一次转录:", fill=(255, 200, 100), 
-                         font=self.fonts.get('lcd_small'))
-                
-                if last_text:
-                    # 自动换行显示
-                    y += 18
-                    lines = self._wrap_text_lcd(last_text, max_chars=18)
-                    for i, line in enumerate(lines[:2]):  # 最多显示2行
-                        draw.text((10, y + i*18), line, fill=(200, 200, 200), 
-                                 font=self.fonts.get('lcd_small'))
-                else:
-                    y += 18
-                    draw.text((10, y), "暂无内容", fill=(150, 150, 150), 
+            
+            # 创建图像
+            img = Image.new('RGB', (self.lcd_main.width, self.lcd_main.height), 
+                           color=(0, 15, 30))  # 深蓝色背景
+            draw = ImageDraw.Draw(img)
+            
+            # ===== 顶部标题栏 =====
+            draw.rectangle([(0, 0), (240, 35)], fill=(20, 40, 80))
+            draw.text((50, 8), "Life Coach", fill=(255, 255, 255), 
+                     font=self.fonts.get('lcd_medium'))
+            current_time = datetime.now().strftime("%H:%M:%S")
+            draw.text((160, 12), current_time, fill=(200, 200, 200), 
+                     font=self.fonts.get('lcd_small'))
+            
+            # ===== 左侧状态区 =====
+            y = 45
+            draw.text((10, y), "录音状态", fill=(150, 150, 150), 
+                     font=self.fonts.get('lcd_small'))
+            status_color = (100, 255, 100) if status == '录音中' else (200, 200, 200)
+            draw.text((90, y), status, fill=status_color, 
+                     font=self.fonts.get('lcd_small'))
+            
+            y += 22
+            draw.text((10, y), "持续时长", fill=(150, 150, 150), 
+                     font=self.fonts.get('lcd_small'))
+            mins, secs = divmod(duration, 60)
+            draw.text((90, y), f"{mins:02d}:{secs:02d}", fill=(200, 200, 200), 
+                     font=self.fonts.get('lcd_small'))
+            
+            y += 22
+            draw.text((10, y), "字数统计", fill=(150, 150, 150), 
+                     font=self.fonts.get('lcd_small'))
+            draw.text((90, y), f"{word_count}字", fill=(200, 200, 200), 
+                     font=self.fonts.get('lcd_small'))
+            
+            y += 22
+            draw.text((10, y), "CPU温度", fill=(150, 150, 150), 
+                     font=self.fonts.get('lcd_small'))
+            temp_color = (255, 100, 100) if cpu_temp > 70 else (200, 200, 200)
+            draw.text((90, y), f"{cpu_temp:.1f}°C", fill=temp_color, 
+                     font=self.fonts.get('lcd_small'))
+            
+            y += 22
+            draw.text((10, y), "内存使用", fill=(150, 150, 150), 
+                     font=self.fonts.get('lcd_small'))
+            draw.text((90, y), f"{memory:.0f}%", fill=(200, 200, 200), 
+                     font=self.fonts.get('lcd_small'))
+            
+            # ===== 分隔线 =====
+            draw.line([(5, 175), (235, 175)], fill=(60, 80, 120), width=2)
+            
+            # ===== 中部最近转录 =====
+            y = 185
+            draw.text((10, y), "最近一次转录:", fill=(255, 200, 100), 
+                     font=self.fonts.get('lcd_small'))
+            
+            if last_text:
+                # 自动换行显示
+                y += 18
+                lines = self._wrap_text_lcd(last_text, max_chars=18)
+                for i, line in enumerate(lines[:2]):  # 最多显示2行
+                    draw.text((10, y + i*18), line, fill=(200, 200, 200), 
                              font=self.fonts.get('lcd_small'))
-                
-                # ===== 底部统计栏 =====
-                draw.rectangle([(0, 280), (240, 320)], fill=(20, 40, 80))
-                today_mins = today_duration // 60
-                draw.text((15, 290), f"今日 {today_count}次/{today_mins}分钟", 
-                         fill=(100, 200, 255), font=self.fonts.get('lcd_small'))
-                
-                self.lcd_main.display(img)
+            else:
+                y += 18
+                draw.text((10, y), "暂无内容", fill=(150, 150, 150), 
+                         font=self.fonts.get('lcd_small'))
+            
+            # ===== 底部统计栏 =====
+            draw.rectangle([(0, 280), (240, 320)], fill=(20, 40, 80))
+            today_mins = today_duration // 60
+            draw.text((15, 290), f"今日 {today_count}次/{today_mins}分钟", 
+                     fill=(100, 200, 255), font=self.fonts.get('lcd_small'))
+            
+            self.lcd_main.display(img)
                 
         except Exception as e:
-            print(f"更新仪表盘失败: {e}")
+            print(f"[LCD] 刷新仪表盘显示失败: {e}", flush=True)
     
     def _wrap_text_lcd(self, text, max_chars=18):
         """LCD文本自动换行（按字符数）"""
