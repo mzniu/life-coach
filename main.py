@@ -357,7 +357,8 @@ class LifeCoachApp:
             self.recording_duration = int(self.recorder.get_duration())
             
             if self.display:
-                self.display.update_timer(self.recording_duration)
+                self.display.update_status("录音中", recording=True, 
+                    duration=self.recording_duration, word_count=self.word_count)
             
             api_server.broadcast_recording_progress(
                 self.recording_duration,
