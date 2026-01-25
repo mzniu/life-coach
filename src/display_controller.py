@@ -235,13 +235,16 @@ class DisplayController:
     def _lcd_refresh_loop(self):
         """LCD定时刷新循环"""
         import time
+        print("[LCD] 刷新循环已启动", flush=True)
         while self.running:
             try:
                 if self.lcd_mode == "dashboard":
                     self.update_dashboard()
                 time.sleep(self.lcd_refresh_interval)
             except Exception as e:
-                print(f"[LCD] 刷新错误: {e}")
+                print(f"[LCD] 刷新错误: {e}", flush=True)
+                import traceback
+                traceback.print_exc()
                 time.sleep(5)
     
     def _show_startup_screens(self):

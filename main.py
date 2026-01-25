@@ -609,6 +609,8 @@ class LifeCoachApp:
                 self.last_transcript = latest.get('content', '')[:50]  # 截取前50字符
         except Exception as e:
             print(f"[统计] 更新今日统计失败: {e}")
+            import traceback
+            traceback.print_exc()
     
     def run(self):
         """启动主循环"""
@@ -656,16 +658,24 @@ class LifeCoachApp:
                 current_time = time.time()
                 if current_time - last_stats_update >= 5:
                     last_stats_update = current_time
+                    print(f"[主循环] 更新统计信息...", flush=True)
                     
-                    # 重新加载今日统计（可能有新的录音）
-                    self._update_today_stats()
-                    
-                    # 获取系统统计
-                    stats = self._get_system_stats()
-                    
-                    # 更新仪表盘显示
-                    if self.display and self.display.enabled:
-                        self.display.update_dashboard(**stats)
+                    try:
+                        # 重新加载今日统计（可能有新的录音）
+                        self._update_today_stats()
+                        
+                        # 获取系统统计
+                        stats = self._get_system_stats()
+                        print(f"[主循环] 统计数据: CPU={stats.get('cpu_temp', 0):.1f}°C, 内存={stats.get('memory_usage', 0):.1f}%, 今日={stats.get('today_count', 0)}次", flush=True)
+                        
+                        # 更新仪表盘显示
+                        if self.display and self.display.enabled:
+                            self.display.update_dashboard(**stats)
+                            print(f"[主循环] 仪表盘已更新", flush=True)
+                    except Exception as e:
+                        print(f"[仪表盘] 更新失败: {e}", flush=True)
+                        import traceback
+                        traceback.print_exc()
                 
                 time.sleep(0.05)
                 
