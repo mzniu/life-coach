@@ -138,13 +138,17 @@ class ASREngine:
         callback: 进度回调函数 callback(progress, partial_text)
         返回: 完整转写文本
         """
+        # 输出当前使用的引擎类型
+        engine_name = "Paraformer" if ASR_ENGINE_TYPE == "sherpa" else "Whisper"
+        print(f"[ASR] 使用引擎: {engine_name} ({'真实' if REAL_ASR and self.model else '模拟'})")
+        
         if REAL_ASR and self.model:
             return self._real_transcribe(audio_chunks, callback, skip_correction=True)
         else:
             return self._mock_transcribe(audio_chunks, callback)
     
     def _real_transcribe(self, audio_chunks, callback=None, skip_correction=False):
-        """真实的Whisper转写"""
+        """真实转写（支持Whisper和Paraformer）"""
         print("[ASR] 开始真实转写...")
         
         try:
@@ -182,46 +186,13 @@ class ASREngine:
                 print("[ASR警告] 音频数据为空或格式错误")
                 return ""
             
-            # 执行转写（使用配置的参数）
-            # initial_prompt 提示模型输出标点符号和规范的中文
-            segments, info = self.model.transcribe(
-                audio_np,
-                language="zh",  # 中文
-                beam_size=ASR_BEAM_SIZE,  # 使用配置的 beam size
-                vad_filter=ASR_VAD_FILTER,  # 使用配置的 VAD
-                initial_prompt="以下是普通话的句子，包含标点符号：",  # 提示输出标点
-            )
-            
-            print(f"[ASR] 检测语言: {info.language} (概率: {info.language_probability:.2f})")
-            
-            # 收集转写结果 - 实时逐个处理segment
-            full_text = []
-            segment_count = 0
-            
-            # 直接遍历生成器，每处理一个segment就回调一次
-            for segment in segments:
-                text = segment.text.strip()
-                full_text.append(text)
-                segment_count += 1
-                
-                # 实时回调进度（使用已处理的segment数量估算进度）
-                if callback:
-                    # 由于无法预知总数，使用已处理的字数来估算进度
-                    # 假设平均每秒产生10-15个字，根据音频长度估算
-                    partial = "".join(full_text)
-                    # 根据已转写的字数和音频时长估算进度
-                    progress = min(95, int(len(partial) / max(1, info.duration * 10) * 100))
-                    callback(progress, partial)
-                    print(f"[ASR进度] {progress}% - 已转写 {len(partial)} 字")
-                
-                print(f"[ASR片段] [{segment.start:.1f}s -> {segment.end:.1f}s] {text}")
-            
-            # 最后回调100%
-            result = "".join(full_text)
-            if callback:
-                callback(100, result)
-            
-            print(f"[ASR] 转写完成: {len(result)} 字符")
+            # 根据引擎类型选择转写方法
+            if ASR_ENGINE_TYPE == "sherpa":
+                # 使用 Paraformer 转写
+                result = self._sherpa_paraformer_transcribe(audio_np, callback)
+            else:
+                # 使用 Whisper 转写
+                result = self._whisper_transcribe(audio_np, callback)
             
             # 文本纠错（如果启用且不跳过）
             if self.text_corrector is not None and not skip_correction:
@@ -309,3 +280,76 @@ class ASREngine:
             print(f"[模拟ASR] 模拟转写文件: {audio_path}", file=sys.stderr, flush=True)
             time.sleep(1)
             return {"text": "这是模拟的文件转写结果。请安装 faster-whisper 以启用真实转写。"}
+    
+    def _sherpa_paraformer_transcribe(self, audio_np, callback=None):
+        """使用 Paraformer 转写"""
+        print("[ASR] 使用 Paraformer 转写...")
+        print(f"[ASR调试] 音频长度: {len(audio_np)} 样本, {len(audio_np)/16000:.2f}秒")
+        print(f"[ASR调试] 音频范围: [{audio_np.min():.4f}, {audio_np.max():.4f}]")
+        
+        try:
+            # Paraformer返回 (segments, info) 元组
+            segments, info = self.model.transcribe(audio_np)
+            
+            print(f"[ASR调试] segments数量: {len(segments) if segments else 0}")
+            print(f"[ASR调试] segments内容: {segments}")
+            
+            # 从segments中提取文本
+            result_text = ""
+            if segments and len(segments) > 0:
+                result_text = segments[0].text
+                print(f"[ASR调试] segments[0].text = '{result_text}'")
+            
+            print(f"[ASR] Paraformer 完成: {len(result_text)} 字符")
+            if result_text:
+                print(f"[ASR] 结果: {result_text}")
+            else:
+                print(f"[ASR警告] Paraformer 返回空结果")
+            
+            if callback:
+                callback(100, result_text)
+            
+            return result_text
+        except Exception as e:
+            print(f"[ASR错误] Paraformer 转写失败: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+    
+    def _whisper_transcribe(self, audio_np, callback=None):
+        """使用 Whisper 转写"""
+        print("[ASR] 使用 Whisper 转写...")
+        
+        # 执行转写（使用配置的参数）
+        segments, info = self.model.transcribe(
+            audio_np,
+            language="zh",  # 中文
+            beam_size=ASR_BEAM_SIZE,
+            vad_filter=ASR_VAD_FILTER,
+            initial_prompt="以下是普通话的句子，包含标点符号：",
+        )
+        
+        print(f"[ASR] 检测语言: {info.language} (概率: {info.language_probability:.2f})")
+        
+        # 收集转写结果
+        full_text = []
+        segment_count = 0
+        
+        for segment in segments:
+            text = segment.text.strip()
+            full_text.append(text)
+            segment_count += 1
+            
+            if callback:
+                partial = "".join(full_text)
+                progress = min(95, int(len(partial) / max(1, info.duration * 10) * 100))
+                callback(progress, partial)
+            
+            print(f"[ASR片段] [{segment.start:.1f}s -> {segment.end:.1f}s] {text}")
+        
+        result = "".join(full_text)
+        if callback:
+            callback(100, result)
+        
+        print(f"[ASR] 转写完成: {len(result)} 字符")
+        return result

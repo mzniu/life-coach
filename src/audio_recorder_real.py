@@ -79,10 +79,15 @@ class AudioRecorder:
         # 初始化 VAD（如果启用实时转录）
         if self.realtime_transcribe and HAS_SILERO_VAD:
             try:
+                from config import (REALTIME_MIN_SPEECH_DURATION, REALTIME_VAD_THRESHOLD, 
+                                   REALTIME_MAX_SPEECH_DURATION)
                 self.vad = SileroVAD(
                     sample_rate=sample_rate,
                     min_silence_duration=REALTIME_MIN_SILENCE_DURATION,
+                    min_speech_duration=REALTIME_MIN_SPEECH_DURATION,
+                    threshold=REALTIME_VAD_THRESHOLD,
                     max_segment_duration=REALTIME_MAX_SEGMENT_DURATION,
+                    max_speech_duration=REALTIME_MAX_SPEECH_DURATION,
                     on_segment_callback=self._on_vad_segment
                 )
                 print(f"[音频录制] Silero VAD 已启用")
@@ -107,24 +112,17 @@ class AudioRecorder:
             print("[音频录制] 初始化模拟音频录制器")
         
     def _preprocess_audio(self, audio_samples: np.ndarray) -> np.ndarray:
-        """音频预处理：降噪和归一化"""
-        # 1. 音量归一化（防止过小或过大）
+        """音频预处理：仅保留归一化，暂时禁用高通滤波以确保稳定性"""
         if len(audio_samples) == 0:
             return audio_samples
         
+        # 仅进行音量归一化
         if AUDIO_NORMALIZE_ENABLED:
             max_abs = np.abs(audio_samples).max()
-            if max_abs > 0:
+            if max_abs > 0 and max_abs < 1e10:  # 防止数值异常
                 # 归一化到配置的目标幅度
-                audio_samples = audio_samples * (AUDIO_NORMALIZE_TARGET / max_abs)
-        
-        # 2. 简单的高通滤波去除低频噪声
-        if AUDIO_HIGHPASS_FILTER_ENABLED and len(audio_samples) > 1:
-            filtered = np.zeros_like(audio_samples)
-            filtered[0] = audio_samples[0]
-            for i in range(1, len(audio_samples)):
-                filtered[i] = AUDIO_HIGHPASS_ALPHA * (filtered[i-1] + audio_samples[i] - audio_samples[i-1])
-            return filtered
+                target = min(AUDIO_NORMALIZE_TARGET, 0.95)  # 确保不超过0.95
+                audio_samples = audio_samples * (target / max_abs)
         
         return audio_samples
     
@@ -132,30 +130,43 @@ class AudioRecorder:
         """VAD 分段回调"""
         self.segment_count += 1
         
-        # 音频质量检查
-        rms = np.sqrt(np.mean(audio_samples ** 2))
-        peak = np.abs(audio_samples).max()
-        
-        print(f"[VAD分段] 第 {self.segment_count} 段: "
-              f"duration={metadata.get('duration', 0):.2f}s, "
-              f"samples={len(audio_samples)}, "
-              f"RMS={rms:.4f}, Peak={peak:.4f}")
-        
-        # 过滤静音片段（RMS过低）
-        if rms < AUDIO_MIN_RMS_THRESHOLD:
-            print(f"[VAD分段] 警告: 音量过低 (RMS={rms:.4f} < {AUDIO_MIN_RMS_THRESHOLD})，跳过该片段")
-            return
-        
-        # 音频预处理
-        processed_audio = self._preprocess_audio(audio_samples)
-        
-        # 调用外部回调
-        if self.segment_callback:
-            # 更新 metadata
-            metadata['segment_index'] = self.segment_count
-            metadata['rms'] = rms
-            metadata['peak'] = peak
-            self.segment_callback(processed_audio, metadata)
+        # [修复] 确保数据类型正确且在有效范围内
+        try:
+            # 转换为float32（如果不是）
+            if audio_samples.dtype != np.float32:
+                audio_samples = audio_samples.astype(np.float32)
+            
+            # VAD已经进行了归一化，这里只需要验证数据范围
+            max_val = np.abs(audio_samples).max()
+            
+            # 音频质量检查
+            rms = np.sqrt(np.mean(audio_samples ** 2))
+            peak = max_val
+            
+            print(f"[VAD分段] 第 {self.segment_count} 段: "
+                  f"duration={metadata.get('duration', 0):.2f}s, "
+                  f"samples={len(audio_samples)}, "
+                  f"RMS={rms:.4f}, Peak={peak:.4f}")
+            
+            # 过滤静音片段（RMS过低）
+            if rms < AUDIO_MIN_RMS_THRESHOLD:
+                print(f"[VAD分段] 警告: 音量过低 (RMS={rms:.4f})，跳过")
+                return
+            
+            # 不再进行额外的预处理，VAD已经输出归一化后的数据
+            processed_audio = audio_samples
+            
+            # 调用外部回调
+            if self.segment_callback:
+                metadata['segment_index'] = self.segment_count
+                metadata['rms'] = rms
+                metadata['peak'] = peak
+                self.segment_callback(processed_audio, metadata)
+                
+        except Exception as e:
+            print(f"[VAD分段错误] 处理第 {self.segment_count} 段失败: {e}")
+            import traceback
+            traceback.print_exc()
     
     def start(self):
         """开始录音"""
@@ -193,7 +204,9 @@ class AudioRecorder:
         
         # 刷新 VAD，处理剩余音频
         if self.vad:
+            print(f"[音频录制] 停止录音，准备flush VAD（已产生 {self.segment_count} 个分段）")
             self.vad.flush()
+            print(f"[音频录制] VAD flush完成（最终 {self.segment_count} 个分段）")
         
         duration = time.time() - self.start_time
         print(f"[音频录制] 停止录音（时长: {duration:.1f}秒, 采样数: {len(self.audio_data)}）")

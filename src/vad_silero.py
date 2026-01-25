@@ -21,6 +21,7 @@ class SileroVAD:
         min_speech_duration: float = 0.25,
         threshold: float = 0.5,
         max_segment_duration: float = 10.0,
+        max_speech_duration: float = 30.0,
         on_segment_callback: Optional[Callable] = None
     ):
         """
@@ -41,6 +42,7 @@ class SileroVAD:
         self.min_speech_duration = min_speech_duration
         self.threshold = threshold
         self.max_segment_duration = max_segment_duration
+        self.max_speech_duration = max_speech_duration
         self.on_segment_callback = on_segment_callback
         
         # 检查模型文件
@@ -69,7 +71,12 @@ class SileroVAD:
         config.provider = "cpu"
         config.silero_vad.min_silence_duration = self.min_silence_duration
         config.silero_vad.min_speech_duration = self.min_speech_duration
+        config.silero_vad.max_speech_duration = self.max_speech_duration
         config.silero_vad.threshold = self.threshold
+        
+        # [优化] window_size 控制VAD的窗口大小，默认512
+        # 较小的window_size可以更快响应，但可能增加误检
+        config.silero_vad.window_size = 512  # 默认值，可调整为256或1024
         
         # buffer_size_in_seconds 设置为最大分段时长的 2 倍
         buffer_size = int(self.max_segment_duration * 2)
@@ -123,9 +130,21 @@ class SileroVAD:
                     'duration': duration,
                     'sample_rate': self.sample_rate
                 }
-                # 转换为numpy数组（sherpa_onnx返回的可能是特殊类型）
-                import numpy as np
-                samples_array = np.array(segment.samples, dtype=np.float32)
+                # sherpa-onnx 的 segment.samples 已经是 numpy.ndarray[float32] 格式
+                # 数据范围已经是 [-1, 1]，不需要额外转换
+                samples_array = segment.samples
+                
+                # 验证数据类型和范围
+                if not isinstance(samples_array, np.ndarray):
+                    samples_array = np.array(samples_array, dtype=np.float32)
+                elif samples_array.dtype != np.float32:
+                    samples_array = samples_array.astype(np.float32)
+                
+                # 调试：输出实际的数据范围
+                actual_min = samples_array.min()
+                actual_max = samples_array.max()
+                print(f"[VAD] 分段 #{self.segment_index} 数据范围: [{actual_min:.4f}, {actual_max:.4f}]")
+                
                 self.on_segment_callback(samples_array, metadata)
             
             # 重置分段开始时间
@@ -141,8 +160,11 @@ class SileroVAD:
     
     def flush(self) -> None:
         """刷新 VAD，处理剩余的音频"""
+        print(f"[VAD] 开始flush，当前队列是否为空: {self.vad.empty()}")
         self.vad.flush()
+        print(f"[VAD] flush后队列是否为空: {self.vad.empty()}")
         self._check_segments()
+        print(f"[VAD] 处理完所有分段")
     
     def reset(self) -> None:
         """重置 VAD 状态"""

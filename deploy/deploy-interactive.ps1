@@ -86,6 +86,12 @@ scp $SSH_OPTS -r "$PSScriptRoot" "${PI_USER}@${PI_HOST}:${PI_PATH}/"
 Write-Host "  ✓ 文件传输完成" -ForegroundColor Green
 Write-Host ""
 
+# 清理Python缓存
+Write-Host "  清理Python字节码缓存..." -ForegroundColor Gray
+ssh $SSH_OPTS "$PI_USER@$PI_HOST" "cd $PI_PATH && find . -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null; find . -type f -name '*.pyc' -delete 2>/dev/null"
+Write-Host "  ✓ Python缓存已清理" -ForegroundColor Green
+Write-Host ""
+
 # 执行安装脚本
 Write-Host "[4/7] 安装系统依赖和Python包..." -ForegroundColor Cyan
 Write-Host "  这可能需要5-10分钟，请耐心等待..." -ForegroundColor Yellow
@@ -106,7 +112,8 @@ Write-Host ""
 
 # 启动服务
 Write-Host "[6/7] 启动Life Coach服务..." -ForegroundColor Cyan
-ssh $SSH_OPTS "$PI_USER@$PI_HOST" "sudo systemctl restart lifecoach.service"
+Write-Host "  清理Python缓存并重启服务..." -ForegroundColor Gray
+ssh $SSH_OPTS "$PI_USER@$PI_HOST" "cd $PI_PATH && find . -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null; find . -type f -name '*.pyc' -delete 2>/dev/null; sudo systemctl restart lifecoach.service"
 Start-Sleep -Seconds 3
 Write-Host "  ✓ 服务已启动" -ForegroundColor Green
 Write-Host ""

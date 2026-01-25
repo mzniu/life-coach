@@ -153,11 +153,8 @@ class RealtimeTranscriber:
                 print(f"[实时转录] 开始转录分段 #{segment_idx}（排队: {queue_delay:.2f}秒）")
                 
                 try:
-                    # 调用ASR引擎转录（启用上下文）
-                    if hasattr(self.asr_engine, 'context_history'):
-                        result = self.asr_engine.transcribe_stream(audio_segment, use_context=True)
-                    else:
-                        result = self.asr_engine.transcribe_stream(audio_segment)
+                    # 调用ASR引擎转录
+                    result = self.asr_engine.transcribe_stream(audio_segment)
                     transcribe_time = time.time() - start_time
                     
                     # 提取文本

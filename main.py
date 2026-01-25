@@ -117,12 +117,16 @@ class LifeCoachApp:
             
             # 启用实时转录（根据配置）
             realtime_enabled = getattr(sys.modules['src.config'], 'REALTIME_TRANSCRIBE_ENABLED', True)
+            print(f"[调试] REALTIME_TRANSCRIBE_ENABLED = {realtime_enabled}")
             if realtime_enabled:
                 print("[实时转录] 启用实时转录模式")
                 self.recorder.realtime_transcribe = True
+                print(f"[调试] realtime_transcriber 对象: {self.realtime_transcriber}")
                 self.realtime_transcriber.start()
+                print(f"[调试] realtime_transcriber.is_running = {self.realtime_transcriber.is_running}")
                 self.accumulated_text = ""
             else:
+                print("[实时转录] 已禁用实时转录")
                 self.recorder.realtime_transcribe = False
             
             self.recorder.start()
@@ -455,6 +459,7 @@ class LifeCoachApp:
     
     def _on_audio_segment(self, audio_segment, metadata):
         """音频分段回调 - 将音频段添加到转录队列"""
+        print(f"[调试] _on_audio_segment 被调用: realtime_transcriber={self.realtime_transcriber is not None}, is_running={self.realtime_transcriber.is_running if self.realtime_transcriber else 'N/A'}")
         if self.realtime_transcriber and self.realtime_transcriber.is_running:
             print(f"[实时转录] 收到音频段 {metadata.get('segment_index')}，长度: {len(audio_segment)} 样本")
             
