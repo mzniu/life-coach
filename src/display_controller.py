@@ -776,6 +776,50 @@ class DisplayController:
         """关闭显示设备 (别名)"""
         self.close()
     
+    def toggle_display(self):
+        """切换显示开关状态"""
+        if not DISPLAY_AVAILABLE:
+            print("[显示] 显示硬件不可用")
+            return False
+        
+        self.enabled = not self.enabled
+        
+        if self.enabled:
+            print("[显示] 已开启显示", flush=True)
+            # 重新初始化显示设备
+            try:
+                self._init_displays()
+                self._load_fonts()
+                self._show_startup_screens()
+                # 重启刷新线程
+                if not self.running:
+                    self._start_lcd_refresh()
+            except Exception as e:
+                print(f"[显示] 开启失败: {e}")
+                self.enabled = False
+                return False
+        else:
+            print("[显示] 已关闭显示", flush=True)
+            # 清空屏幕
+            try:
+                if self.oled_status:
+                    from luma.core.render import canvas
+                    with canvas(self.oled_status) as draw:
+                        draw.rectangle(self.oled_status.bounding_box, outline="black", fill="black")
+                
+                if self.oled_stats:
+                    from luma.core.render import canvas
+                    with canvas(self.oled_stats) as draw:
+                        draw.rectangle(self.oled_stats.bounding_box, outline="black", fill="black")
+                
+                if self.lcd_main:
+                    img = Image.new('RGB', (self.lcd_main.width, self.lcd_main.height), color=(0, 0, 0))
+                    self.lcd_main.display(img)
+            except Exception as e:
+                print(f"[显示] 关闭时清空屏幕失败: {e}")
+        
+        return self.enabled
+    
     def close(self):
         """关闭显示设备"""
         try:

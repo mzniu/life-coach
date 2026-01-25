@@ -30,7 +30,6 @@ class ButtonHandler:
         self.use_gpio = use_gpio
         self.k1_pressed_flag = False
         self.k4_pressed_flag = False
-        self.k4_long_press_start = None
         self.running = False
         self.monitor_thread = None
         
@@ -51,9 +50,9 @@ class ButtonHandler:
                 GPIO.add_event_detect(GPIO_K4, GPIO.FALLING,
                                      callback=self._k4_callback, bouncetime=200)
                 
-                print("[GPIO按键] 初始化成功（K1=GPIO4, K4=GPIO24）")
+                print("[GPIO按键] 初始化成功（K1=GPIO4 录音, K4=GPIO24 显示开关）")
                 
-                # 启动监控线程（用于长按检测）
+                # 启动监控线程
                 self.running = True
                 self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
                 self.monitor_thread.start()
@@ -63,7 +62,7 @@ class ButtonHandler:
                 self.use_gpio = False
         
         if not self.use_gpio:
-            print("[模拟按键] 初始化GPIO按键（K1=录音, K4=退出）")
+            print("[模拟按键] 初始化GPIO按键（K1=录音, K4=显示开关）")
     
     def _k1_callback(self, channel):
         """K1按键中断回调"""
@@ -71,10 +70,9 @@ class ButtonHandler:
         print("[GPIO] K1 按下")
     
     def _k4_callback(self, channel):
-        """K4按键中断回调"""
+        """K4按键中断回调 - 屏幕开关"""
         self.k4_pressed_flag = True
-        self.k4_long_press_start = time.time()
-        print("[GPIO] K4 按下")
+        print("[GPIO] K4 按下 - 切换显示")
     
     def _monitor_loop(self):
         """监控线程 - 检测长按"""
@@ -92,6 +90,10 @@ class ButtonHandler:
                 print(f"[GPIO] 监控线程错误: {e}")
                 time.sleep(1)
         
+    def _k4_callback(self, channel):
+        """K4按钮中断回调 - 屏幕开关"""
+        self.k4_pressed_flag = True
+    
     def k1_pressed(self):
         """检测K1按键是否按下（边缘触发，仅返回一次）"""
         if self.k1_pressed_flag:

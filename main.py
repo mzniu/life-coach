@@ -615,7 +615,7 @@ class LifeCoachApp:
     def run(self):
         """启动主循环"""
         print("[主程序] 启动主循环...")
-        print("[按钮] K1=开始/停止录音, K4长按3秒=退出")
+        print("[按钮] K1=开始/停止录音, K4=切换屏幕显示")
         
         # 初始更新统计信息
         self._update_today_stats()
@@ -648,11 +648,13 @@ class LifeCoachApp:
                         except Exception as e:
                             print(f"[按钮] 停止录音失败: {e}")
                 
-                # 检测K4长按 - 退出程序
-                if self.buttons.k4_long_pressed():
-                    print("[按钮] K4长按触发，准备退出...")
-                    self.shutdown()
-                    break
+                # 检测K4按钮 - 切换显示开关
+                if self.buttons.k4_pressed():
+                    print("[按钮] K4触发，切换显示状态")
+                    if self.display:
+                        display_state = self.display.toggle_display()
+                        status_text = "已开启" if display_state else "已关闭"
+                        print(f"[显示] {status_text}")
                 
                 # 定期更新仪表盘统计信息 (每5秒)
                 current_time = time.time()
