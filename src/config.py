@@ -54,9 +54,48 @@ print(f"[配置] Platform: {'Raspberry Pi' if IS_RASPBERRY_PI else 'Windows/Mac'
 GPIO_K1 = 4   # 录音按键（Pin 7）
 GPIO_K4 = 24  # 退出按键（Pin 18）
 
-# I2C地址（双OLED屏幕）
-I2C_OLED_LEFT = 0x3C   # 左副屏（状态显示）
-I2C_OLED_RIGHT = 0x3D  # 右副屏（统计信息）
+# ==================== 显示屏配置 ====================
+# 是否启用显示功能
+DISPLAY_ENABLED = os.getenv('DISPLAY_ENABLED', 'true' if IS_RASPBERRY_PI else 'false').lower() == 'true'
+
+# OLED 屏幕配置（双屏，I2C接口）
+OLED_I2C_PORT = 1          # I2C端口号（树莓派默认为1）
+OLED_STATUS_ADDRESS = 0x3C  # OLED #1地址 - 状态屏（左屏）
+OLED_STATS_ADDRESS = 0x3D   # OLED #2地址 - 统计屏（右屏）
+OLED_WIDTH = 128            # OLED分辨率宽度
+OLED_HEIGHT = 64            # OLED分辨率高度
+
+# LCD 主屏配置（SPI接口）
+LCD_SPI_PORT = 0           # SPI端口号
+LCD_SPI_DEVICE = 0         # SPI设备号
+LCD_GPIO_DC = 15           # 数据/命令选择引脚（Pin 15）
+LCD_GPIO_RST = 13          # 复位引脚（Pin 13）
+LCD_WIDTH = 240            # LCD分辨率宽度
+LCD_HEIGHT = 320           # LCD分辨率高度
+LCD_ROTATE = 0             # 旋转角度：0/1/2/3 对应 0°/90°/180°/270°
+LCD_BGR = True             # 颜色模式（ST7789芯片需要设置为True）
+
+# 中文字体路径（优先级顺序）
+DISPLAY_FONT_PATHS = [
+    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",       # 文泉驿微米黑（推荐）
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",      # DejaVu Sans
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"  # Liberation Sans
+]
+
+# 字体大小配置
+DISPLAY_FONT_SIZE_OLED_SMALL = 10   # OLED小字号
+DISPLAY_FONT_SIZE_OLED_MEDIUM = 12  # OLED中字号
+DISPLAY_FONT_SIZE_OLED_LARGE = 14   # OLED大字号
+DISPLAY_FONT_SIZE_LCD_SMALL = 16    # LCD小字号
+DISPLAY_FONT_SIZE_LCD_MEDIUM = 20   # LCD中字号
+DISPLAY_FONT_SIZE_LCD_LARGE = 24    # LCD大字号
+
+# LCD文本显示配置
+LCD_MAX_TRANSCRIPT_LINES = 10       # 最多显示行数
+LCD_MAX_CHARS_PER_LINE = 12         # 每行最多显示字符数（约12个汉字）
+LCD_LINE_HEIGHT = 28                # 行高（像素）
+
+print(f"[配置] 显示功能: {'启用' if DISPLAY_ENABLED else '禁用'}, OLED: 0x{OLED_STATUS_ADDRESS:02X}/0x{OLED_STATS_ADDRESS:02X}, LCD: {LCD_WIDTH}x{LCD_HEIGHT}")
 
 # ==================== 音频参数 ====================
 SAMPLE_RATE = 16000      # 采样率（Whisper最优）
@@ -140,18 +179,6 @@ ASR_USE_CONTEXT = os.getenv('ASR_USE_CONTEXT', 'true').lower() == 'true'  # 是�
 
 print(f"[配置] 实时转录: {'启用' if REALTIME_TRANSCRIBE_ENABLED else '禁用'}, 静音阈值={REALTIME_SILENCE_THRESHOLD}, 触发时长={REALTIME_MIN_SILENCE_DURATION}s, 人声检测={'启用' if REALTIME_VOICE_DETECTION_ENABLED else '禁用'}")
 print(f"[配置] 音频处理: 归一化={'启用' if AUDIO_NORMALIZE_ENABLED else '禁用'}, 降噪={'启用' if AUDIO_HIGHPASS_FILTER_ENABLED else '禁用'}, 上下文大小={ASR_CONTEXT_SIZE}")
-
-# ==================== 显示参数 ====================
-# 中文字体路径（需安装 fonts-wqy-zenhei）
-FONT_PATH = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
-FONT_SIZE_TITLE = 12    # 标题字体大小
-FONT_SIZE_STATUS = 14   # 状态字体大小
-FONT_SIZE_DETAIL = 10   # 详细信息字体大小
-
-# OLED刷新频率
-OLED_REFRESH_IDLE = 5.0      # 待机状态刷新间隔（秒）
-OLED_REFRESH_RECORDING = 1.0  # 录音中刷新间隔（秒）
-OLED_REFRESH_PROCESSING = 0.1 # 转写中刷新间隔（秒）
 
 # ==================== Web服务配置 ====================
 # WEB_HOST和WEB_PORT已从根目录config.py导入

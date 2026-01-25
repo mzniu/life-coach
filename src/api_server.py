@@ -13,6 +13,10 @@ import time
 # 添加父目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.config import *
+from src.display_controller import get_display_controller
+
+# 初始化显示控制器（全局单例）
+display = get_display_controller(enable_display=DISPLAY_ENABLED)
 
 # 创建Flask应用
 app = Flask(__name__, 
@@ -744,6 +748,10 @@ def broadcast_status_update(status, detail=""):
         'status': status,
         'detail': detail
     })
+    
+    # 更新OLED状态屏
+    if display.enabled:
+        display.update_status(status, detail=detail)
 
 def broadcast_recording_progress(duration, word_count):
     """广播录音进度"""
@@ -751,6 +759,10 @@ def broadcast_recording_progress(duration, word_count):
         'duration': duration,
         'word_count': word_count
     })
+    
+    # 更新OLED状态屏
+    if display.enabled:
+        display.update_status("录音中", recording=True, duration=duration, word_count=word_count)
 
 def broadcast_processing_progress(progress, message=""):
     """广播转写进度"""
@@ -788,6 +800,10 @@ def broadcast_realtime_transcript(segment, full_text, segment_index, transcribe_
         'is_final': False                 # 是否为最终结果（录音结束）
     })
     print(f"[WebSocket] 广播实时转录: 第{segment_index}段, {len(segment)}字")
+    
+    # 更新LCD主屏显示转录文本
+    if display.enabled and segment:
+        display.update_transcript(segment, append=True)
 def broadcast_log(message, level='info'):
     """广播日志消息到前端"""
     socketio.emit('log_message', {
