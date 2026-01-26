@@ -136,8 +136,14 @@ class AudioRecorder:
             if audio_samples.dtype != np.float32:
                 audio_samples = audio_samples.astype(np.float32)
             
-            # VAD已经进行了归一化，这里只需要验证数据范围
+            # 检查并归一化音频数据
             max_val = np.abs(audio_samples).max()
+            
+            # 如果数据范围超出[-1, 1]，进行归一化
+            if max_val > 1.0:
+                print(f"[VAD分段] 警告: 音频数据未归一化，峰值={max_val:.2f}，正在归一化...")
+                audio_samples = audio_samples / 32768.0  # int16 -> float32
+                max_val = np.abs(audio_samples).max()
             
             # 音频质量检查
             rms = np.sqrt(np.mean(audio_samples ** 2))
@@ -153,7 +159,7 @@ class AudioRecorder:
                 print(f"[VAD分段] 警告: 音量过低 (RMS={rms:.4f})，跳过")
                 return
             
-            # 不再进行额外的预处理，VAD已经输出归一化后的数据
+            # 使用归一化后的音频数据
             processed_audio = audio_samples
             
             # 调用外部回调

@@ -493,7 +493,7 @@ class LifeCoachApp:
             self.realtime_transcriber.add_segment(audio_segment, metadata)
     
     def _on_segment_transcribed(self, text, metadata):
-        """转录结果回调 - 通过WebSocket推送给前端"""
+        """转录结果回调 - 通过WebSocket推送给前端并更新OLED副屏"""
         try:
             self.accumulated_text += text
             self.word_count = len(self.accumulated_text)
@@ -517,6 +517,18 @@ class LifeCoachApp:
                 transcribe_time=transcribe_time,
                 total_segments=metadata.get('total_segments', 0)
             )
+            
+            # 更新OLED副屏显示实时转录文本
+            print(f"[OLED调试] display={self.display is not None}, accumulated_text长度={len(self.accumulated_text)}")
+            if self.display:
+                print(f"[OLED调试] 正在调用update_stats更新副屏...")
+                self.display.update_stats(
+                    transcript_text=self.accumulated_text,
+                    recording_count=self.today_count
+                )
+                print(f"[OLED调试] update_stats调用完成")
+            else:
+                print(f"[OLED调试] display 为 None，无法更新副屏")
             
         except Exception as e:
             print(f"[实时转录错误] 回调异常: {e}")
