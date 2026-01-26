@@ -49,6 +49,99 @@ Feedback loop and commit rules
 Contact the maintainer
 - If unclear, ask the user a focused question before making structural changes.
 
-— End of instructions —
+## Development workflow and debugging style
 
-Please review and tell me what to add or change.
+This section captures the maintainer's preferred development and debugging workflow based on actual working sessions.
+
+### Problem diagnosis approach
+**Always diagnose before fixing**: When a feature isn't working:
+1. Read log output first (e.g., `journalctl -u lifecoach --no-pager -n 100 | grep ...`)
+2. Read relevant source code to understand the issue (use `read_file`, `grep_search`)
+3. Identify root cause (missing attributes, wrong data types, incorrect assumptions)
+4. Only then propose a fix
+
+Example from session: When OLED副屏 wasn't updating, checked logs → found `'LifeCoachApp' object has no attribute 'display_controller'` → read `__init__` → discovered correct name is `self.display` → fixed attribute reference.
+
+### Incremental fixes with validation
+**Fix one issue at a time, deploy immediately**:
+- Fix a single, well-defined problem
+- Deploy to target device (Raspberry Pi via `scp` + `systemctl restart`)
+- Verify with logs or user testing before moving to next issue
+- If fix reveals another issue (e.g., `recording_count` → `today_count`), fix and redeploy
+
+Do NOT batch multiple unrelated fixes in one deployment cycle.
+
+### Debugging instrumentation
+**Add temporary debug logs when diagnosis is unclear**:
+- Add `print(f"[DEBUG] variable={value}")` statements to trace execution
+- Include context: object state, variable values, branch taken
+- Remove or comment out debug logs after issue is resolved (or leave if helpful for future debugging)
+
+Example:
+```python
+print(f"[OLED调试] display={self.display is not None}, accumulated_text长度={len(self.accumulated_text)}")
+if self.display:
+    print(f"[OLED调试] 正在调用update_stats更新副屏...")
+```
+
+### Code verification before deployment
+**Always verify assumptions about code structure**:
+- Check attribute names exist in `__init__` (e.g., `self.display` vs `self.display_controller`)
+- Verify method signatures match call sites (parameter names, types)
+- Read existing code patterns before adding similar functionality
+- Use `grep_search` or `list_code_usages` to find all references
+
+### Git commit discipline
+**Commit immediately after successful fix with detailed message**:
+- Commit message structure:
+  ```
+  <type>: <short summary>
+  
+  <detailed explanation>
+  - Bullet point 1: what was wrong
+  - Bullet point 2: how it was fixed
+  - Bullet point 3: technical details
+  
+  <verification notes>
+  ```
+- Types: `fix:`, `feat:`, `refactor:`, `docs:`, `test:`
+- Include root cause analysis in commit body
+- Reference specific files and line numbers when helpful
+- Push immediately after commit (`git push`)
+
+Example commit message from session:
+```
+fix: 修复实时转录音频归一化和OLED副屏显示
+
+核心问题修复:
+1. **音频归一化**: VAD输出的音频数据未归一化(int16范围)，导致实时转录失败
+   - 在audio_recorder_real.py的_on_vad_segment中添加归一化检查
+   - 检测峰值>1.0时自动归一化(除以32768)
+   
+2. **OLED副屏显示**: 实时转录文本未同步到OLED副屏
+   - 修复属性名错误: display_controller→display, recording_count→today_count
+
+测试验证:
+- 实时转录正常返回文本(之前返回空)
+- 音频数据范围正常(Peak<1.0)
+```
+
+### Multi-step problem solving
+**For complex issues with multiple symptoms**:
+1. Identify the primary symptom (e.g., "实时转录返回空文本")
+2. Gather evidence (logs showing audio range 134579 instead of 1.0)
+3. Trace through the data flow (VAD → audio_recorder → ASR)
+4. Find the broken link (missing normalization in `_on_vad_segment`)
+5. Fix and verify primary issue resolves
+6. If secondary issues appear (OLED not updating), repeat process
+
+### Communication with maintainer
+**During debugging session**:
+- Report what you found: "错误信息：`'LifeCoachApp' object has no attribute 'display_controller'`"
+- Explain root cause: "问题是属性名错误：应该是`self.display`而不是`self.display_controller`"
+- State the fix: "我已修复属性名并部署"
+- Provide verification command: "现在请在树莓派上录音测试，应该能看到OLED副屏更新"
+
+**Keep responses concise**: Don't repeat long code blocks unless necessary. Use file links: `[main.py](main.py#L495-L535)`.
+
+— End of instructions —
