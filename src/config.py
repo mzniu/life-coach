@@ -142,12 +142,15 @@ REALTIME_TRANSCRIBE_ENABLED = os.getenv('REALTIME_TRANSCRIBE_ENABLED', 'true').l
 
 # VAD（语音活动检测）参数
 REALTIME_SILENCE_THRESHOLD = int(os.getenv('REALTIME_SILENCE_THRESHOLD', '500'))  # 静音阈值（音频能量）
-REALTIME_MIN_SILENCE_DURATION = float(os.getenv('REALTIME_MIN_SILENCE_DURATION', '0.5'))  # 静音触发时长（秒）
-REALTIME_MIN_SPEECH_DURATION = float(os.getenv('REALTIME_MIN_SPEECH_DURATION', '0.25'))  # 最小语音时长（秒）
-REALTIME_VAD_THRESHOLD = float(os.getenv('REALTIME_VAD_THRESHOLD', '0.3'))  # VAD阈值，降低到0.3更容易触发
+REALTIME_MIN_SILENCE_DURATION = float(os.getenv('REALTIME_MIN_SILENCE_DURATION', '0.8'))  # 静音触发时长（秒），从1.2→0.8更灵敏
+REALTIME_MIN_SPEECH_DURATION = float(os.getenv('REALTIME_MIN_SPEECH_DURATION', '0.1'))  # 最小语音时长（秒），从0.25→0.1捕获更短语音
+REALTIME_VAD_THRESHOLD = float(os.getenv('REALTIME_VAD_THRESHOLD', '0.35'))  # VAD阈值，0.35平衡灵敏度和准确性
 REALTIME_MAX_SPEECH_DURATION = float(os.getenv('REALTIME_MAX_SPEECH_DURATION', '30.0'))  # 最大语音时长（秒）
 REALTIME_MAX_SEGMENT_DURATION = float(os.getenv('REALTIME_MAX_SEGMENT_DURATION', '10.0'))  # 最大分段时长（秒）
 REALTIME_MIN_SEGMENT_DURATION = float(os.getenv('REALTIME_MIN_SEGMENT_DURATION', '0.5'))  # 最小分段时长（秒）
+
+# 音频前后缓冲区（防止首尾截断）
+REALTIME_SPEECH_PAD_MS = int(os.getenv('REALTIME_SPEECH_PAD_MS', '300'))  # 语音段前后各填充300ms
 
 # 人声检测（过滤非人声噪音）
 REALTIME_VOICE_DETECTION_ENABLED = os.getenv('REALTIME_VOICE_DETECTION_ENABLED', 'true').lower() == 'true'  # 是否启用人声检测
