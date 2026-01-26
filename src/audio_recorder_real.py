@@ -80,7 +80,7 @@ class AudioRecorder:
         if self.realtime_transcribe and HAS_SILERO_VAD:
             try:
                 from src.config import (REALTIME_MIN_SPEECH_DURATION, REALTIME_VAD_THRESHOLD, 
-                                       REALTIME_MAX_SPEECH_DURATION, REALTIME_SPEECH_PAD_MS)
+                                       REALTIME_MAX_SPEECH_DURATION)
                 self.vad = SileroVAD(
                     sample_rate=sample_rate,
                     min_silence_duration=REALTIME_MIN_SILENCE_DURATION,
@@ -88,7 +88,6 @@ class AudioRecorder:
                     threshold=REALTIME_VAD_THRESHOLD,
                     max_segment_duration=REALTIME_MAX_SEGMENT_DURATION,
                     max_speech_duration=REALTIME_MAX_SPEECH_DURATION,
-                    speech_pad_ms=REALTIME_SPEECH_PAD_MS,
                     on_segment_callback=self._on_vad_segment
                 )
                 print(f"[音频录制] Silero VAD 已启用")

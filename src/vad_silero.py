@@ -22,7 +22,6 @@ class SileroVAD:
         threshold: float = 0.35,
         max_segment_duration: float = 10.0,
         max_speech_duration: float = 30.0,
-        speech_pad_ms: int = 300,
         on_segment_callback: Optional[Callable] = None
     ):
         """
@@ -31,13 +30,14 @@ class SileroVAD:
         Args:
             model_path: VAD 模型路径
             sample_rate: 音频采样率
-            min_silence_duration: 最小静音时长（秒），触发分段（推荐0.8s）
-            min_speech_duration: 最小语音时长（秒），过滤短语音（推荐0.1s）
-            threshold: VAD 阈值 (0.0-1.0)，推荐0.35平衡灵敏度
+            min_silence_duration: 最小静音时长（秒），触发分段（推荐0.8s，减少过早分段）
+            min_speech_duration: 最小语音时长（秒），过滤短语音（推荐0.1s，捕获短语音）
+            threshold: VAD 阈值 (0.0-1.0)，推荐0.35平衡灵敏度（降低可减少首部截断）
             max_segment_duration: 最大分段时长（秒），超过强制分段
             max_speech_duration: 最大语音时长（秒）
-            speech_pad_ms: 语音段前后填充时长（毫秒），防止首尾截断（推荐300ms）
             on_segment_callback: 分段回调函数
+        
+        注意: 当前 sherpa-onnx 版本不支持 speech_pad_ms，通过优化其他参数减少截断
         """
         self.model_path = Path(model_path)
         self.sample_rate = sample_rate
@@ -46,7 +46,6 @@ class SileroVAD:
         self.threshold = threshold
         self.max_segment_duration = max_segment_duration
         self.max_speech_duration = max_speech_duration
-        self.speech_pad_ms = speech_pad_ms
         self.on_segment_callback = on_segment_callback
         
         # 检查模型文件
@@ -62,10 +61,10 @@ class SileroVAD:
         
         print(f"[VAD] Silero VAD 已初始化")
         print(f"  模型: {self.model_path}")
-        print(f"  min_silence: {min_silence_duration}s")
-        print(f"  min_speech: {min_speech_duration}s")
-        print(f"  threshold: {threshold}")
-        print(f"  speech_pad: {speech_pad_ms}ms（防止首尾截断）")
+        print(f"  min_silence: {min_silence_duration}s (优化：减少过早分段)")
+        print(f"  min_speech: {min_speech_duration}s (优化：捕获短语音)")
+        print(f"  threshold: {threshold} (优化：更灵敏检测)")
+        print(f"  window_size: 256 (优化：更快响应)")
     
     def _create_vad(self):
         """创建 Silero VAD 实例"""
@@ -84,9 +83,8 @@ class SileroVAD:
         # 使用256以更快响应语音开始，减少首部截断
         config.silero_vad.window_size = 256
         
-        # [关键] speech_pad_ms: 在语音段前后各填充指定毫秒的音频
-        # 这是防止首尾截断的核心参数
-        config.silero_vad.speech_pad_ms = self.speech_pad_ms
+        # 注意：当前版本的 sherpa-onnx (1.12.23) 不支持 speech_pad_ms 参数
+        # 我们将在 _check_segments() 中手动实现音频前后填充
         
         # buffer_size_in_seconds 设置为最大分段时长的 2 倍
         buffer_size = int(self.max_segment_duration * 2)
