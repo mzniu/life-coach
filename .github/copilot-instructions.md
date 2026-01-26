@@ -144,4 +144,8 @@ fix: 修复实时转录音频归一化和OLED副屏显示
 
 **Keep responses concise**: Don't repeat long code blocks unless necessary. Use file links: `[main.py](main.py#L495-L535)`.
 
+
+### Most Important instruction
+** Do not commit code changes without explicit user approval. Always create a proposal in `docs/proposals/` first if new scripts or significant changes are needed. **
+
 — End of instructions —

@@ -127,6 +127,12 @@ class SileroVAD:
                   f"start={start_time:.2f}s, duration={duration:.2f}s, "
                   f"samples={len(segment.samples)}")
             
+            # 跳过空segment（sherpa-onnx的一个已知问题）
+            if len(segment.samples) == 0:
+                print(f"[VAD] 警告: 第 {self.segment_index} 段为空 (start={start_time:.2f}s)，跳过")
+                self.segment_start_time = time.time()
+                continue
+            
             # 调用回调
             if self.on_segment_callback:
                 metadata = {
