@@ -79,8 +79,8 @@ class AudioRecorder:
         # 初始化 VAD（如果启用实时转录）
         if self.realtime_transcribe and HAS_SILERO_VAD:
             try:
-                from config import (REALTIME_MIN_SPEECH_DURATION, REALTIME_VAD_THRESHOLD, 
-                                   REALTIME_MAX_SPEECH_DURATION, REALTIME_SPEECH_PAD_MS)
+                from src.config import (REALTIME_MIN_SPEECH_DURATION, REALTIME_VAD_THRESHOLD, 
+                                       REALTIME_MAX_SPEECH_DURATION, REALTIME_SPEECH_PAD_MS)
                 self.vad = SileroVAD(
                     sample_rate=sample_rate,
                     min_silence_duration=REALTIME_MIN_SILENCE_DURATION,
