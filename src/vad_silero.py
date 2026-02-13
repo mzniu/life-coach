@@ -22,6 +22,7 @@ class SileroVAD:
         threshold: float = 0.5,
         max_segment_duration: float = 10.0,
         max_speech_duration: float = 30.0,
+        speech_pad_ms: int = 300,
         on_segment_callback: Optional[Callable] = None
     ):
         """
@@ -35,6 +36,7 @@ class SileroVAD:
             threshold: VAD 阈值 (0.0-1.0)
             max_segment_duration: 最大分段时长（秒），超过强制分段
             max_speech_duration: 最大语音时长（秒）
+            speech_pad_ms: 语音段前后填充毫秒数，防止首尾截断
             on_segment_callback: 分段回调函数
         """
         self.model_path = Path(model_path)
@@ -44,7 +46,11 @@ class SileroVAD:
         self.threshold = threshold
         self.max_segment_duration = max_segment_duration
         self.max_speech_duration = max_speech_duration
+        self.speech_pad_ms = speech_pad_ms
         self.on_segment_callback = on_segment_callback
+        
+        self.audio_buffer = np.array([], dtype=np.float32)
+        self.buffer_start_sample = 0
         
         # 检查模型文件
         if not self.model_path.exists():
@@ -94,22 +100,28 @@ class SileroVAD:
         Args:
             audio_chunk: 音频数据 (float32, shape: [samples])
         """
-        # 确保是 float32 格式
         if audio_chunk.dtype != np.float32:
             audio_chunk = audio_chunk.astype(np.float32)
         
-        # 如果是 int16 范围，归一化到 [-1, 1]
         if audio_chunk.max() > 1.0 or audio_chunk.min() < -1.0:
             audio_chunk = audio_chunk / 32768.0
         
-        # 送入 VAD
+        if len(self.audio_buffer) == 0:
+            self.buffer_start_sample = 0
+        
+        self.audio_buffer = np.concatenate([self.audio_buffer, audio_chunk])
+        
         self.vad.accept_waveform(audio_chunk)
         
-        # 检查是否有完整的语音段
         self._check_segments()
         
-        # 检查是否超过最大分段时长
         self._check_max_duration()
+        
+        max_buffer_samples = int(self.max_segment_duration * 3 * self.sample_rate)
+        if len(self.audio_buffer) > max_buffer_samples:
+            excess = len(self.audio_buffer) - max_buffer_samples
+            self.audio_buffer = self.audio_buffer[excess:]
+            self.buffer_start_sample += excess
     
     def _check_segments(self) -> None:
         """检查并处理完整的语音段"""
@@ -117,48 +129,60 @@ class SileroVAD:
             segment = self.vad.front
             self.vad.pop()
             
-            # 获取语音段信息
-            start_time = segment.start / self.sample_rate
+            start_sample = segment.start
             duration = len(segment.samples) / self.sample_rate
             
             self.segment_index += 1
             
             print(f"[VAD] 第 {self.segment_index} 段: "
-                  f"start={start_time:.2f}s, duration={duration:.2f}s, "
+                  f"start={start_sample/self.sample_rate:.2f}s, duration={duration:.2f}s, "
                   f"samples={len(segment.samples)}")
             
-            # 跳过空segment（sherpa-onnx的一个已知问题）
             if len(segment.samples) == 0:
-                print(f"[VAD] 警告: 第 {self.segment_index} 段为空 (start={start_time:.2f}s)，跳过")
+                print(f"[VAD] 警告: 第 {self.segment_index} 段为空，跳过")
                 self.segment_start_time = time.time()
                 continue
             
-            # 调用回调
             if self.on_segment_callback:
                 metadata = {
                     'segment_index': self.segment_index,
-                    'start_time': start_time,
+                    'start_time': start_sample / self.sample_rate,
                     'duration': duration,
                     'sample_rate': self.sample_rate
                 }
-                # sherpa-onnx 的 segment.samples 已经是 numpy.ndarray[float32] 格式
-                # 数据范围已经是 [-1, 1]，不需要额外转换
+                
                 samples_array = segment.samples
                 
-                # 验证数据类型和范围
                 if not isinstance(samples_array, np.ndarray):
                     samples_array = np.array(samples_array, dtype=np.float32)
                 elif samples_array.dtype != np.float32:
                     samples_array = samples_array.astype(np.float32)
                 
-                # 调试：输出实际的数据范围
+                pad_samples = int(self.speech_pad_ms * self.sample_rate / 1000)
+                
+                segment_start_in_buffer = start_sample - self.buffer_start_sample
+                
+                if segment_start_in_buffer >= 0 and len(self.audio_buffer) > 0:
+                    padded_start = max(0, segment_start_in_buffer - pad_samples)
+                    padded_end = min(len(self.audio_buffer), 
+                                    segment_start_in_buffer + len(samples_array) + pad_samples)
+                    
+                    padded_samples = self.audio_buffer[padded_start:padded_end].copy()
+                    
+                    if len(padded_samples) > len(samples_array):
+                        actual_pad_start = segment_start_in_buffer - padded_start
+                        actual_pad_end = padded_end - (segment_start_in_buffer + len(samples_array))
+                        print(f"[VAD] 添加前后填充: 前{actual_pad_start}样本, 后{actual_pad_end}样本 "
+                              f"(共{len(padded_samples)}样本, {len(padded_samples)/self.sample_rate:.2f}s)")
+                        samples_array = padded_samples
+                        metadata['duration'] = len(samples_array) / self.sample_rate
+                
                 actual_min = samples_array.min()
                 actual_max = samples_array.max()
                 print(f"[VAD] 分段 #{self.segment_index} 数据范围: [{actual_min:.4f}, {actual_max:.4f}]")
                 
                 self.on_segment_callback(samples_array, metadata)
             
-            # 重置分段开始时间
             self.segment_start_time = time.time()
     
     def _check_max_duration(self) -> None:
@@ -182,6 +206,8 @@ class SileroVAD:
         self.vad.reset()
         self.segment_index = 0
         self.segment_start_time = time.time()
+        self.audio_buffer = np.array([], dtype=np.float32)
+        self.buffer_start_sample = 0
         print("[VAD] 已重置")
     
     def is_speech(self) -> bool:

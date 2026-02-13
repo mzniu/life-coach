@@ -65,6 +65,10 @@ class DisplayController:
         self.oled_stats = None        # OLED #2 (0x3D) - 统计屏
         self.lcd_main = None          # LCD 主屏 - 转录文本
         
+        # GPIO 背光控制
+        self.backlight_pin = 18  # BCM18 控制 LCD 背光
+        self.gpio = None
+        
         # 字体缓存
         self.fonts = {}
         
@@ -82,24 +86,56 @@ class DisplayController:
         self.running = False
         
         if self.enabled:
+            self._init_gpio_backlight()
             self._init_displays()
             self._load_fonts()
             self._start_lcd_refresh()
         else:
             print("显示功能已禁用")
     
+    def _init_gpio_backlight(self):
+        """初始化 GPIO 背光控制"""
+        try:
+            import Hobot.GPIO as GPIO
+            self.gpio = GPIO
+            GPIO.setmode(GPIO.BCM)
+            GPIO.setwarnings(False)
+            GPIO.setup(self.backlight_pin, GPIO.OUT)
+            GPIO.output(self.backlight_pin, GPIO.HIGH)  # 开启背光
+            print(f"✓ LCD背光初始化成功 (GPIO{self.backlight_pin})")
+        except ImportError:
+            try:
+                import RPi.GPIO as GPIO
+                self.gpio = GPIO
+                GPIO.setmode(GPIO.BCM)
+                GPIO.setwarnings(False)
+                GPIO.setup(self.backlight_pin, GPIO.OUT)
+                GPIO.output(self.backlight_pin, GPIO.HIGH)  # 开启背光
+                print(f"✓ LCD背光初始化成功 (GPIO{self.backlight_pin})")
+            except ImportError:
+                print("警告: GPIO库不可用，无法控制LCD背光")
+                self.gpio = None
+    
+    def _set_backlight(self, on):
+        """设置背光开关"""
+        if self.gpio:
+            self.gpio.output(self.backlight_pin, self.gpio.HIGH if on else self.gpio.LOW)
+    
     def _init_displays(self):
         """初始化所有显示设备"""
         try:
+            # 检测 I2C 端口（地瓜派使用 i2c-5）
+            i2c_port = 5 if os.path.exists('/dev/i2c-5') else 1
+            
             # 初始化OLED #1 (0x3C) - 状态屏
-            print("正在初始化OLED状态屏 (0x3C)...")
-            serial_status = i2c(port=1, address=0x3C)
+            print(f"正在初始化OLED状态屏 (0x3C) on i2c-{i2c_port}...")
+            serial_status = i2c(port=i2c_port, address=0x3C)
             self.oled_status = ssd1306(serial_status, width=128, height=64)
             print("✓ OLED状态屏初始化成功")
             
             # 初始化OLED #2 (0x3D) - 统计屏
-            print("正在初始化OLED统计屏 (0x3D)...")
-            serial_stats = i2c(port=1, address=0x3D)
+            print(f"正在初始化OLED统计屏 (0x3D) on i2c-{i2c_port}...")
+            serial_stats = i2c(port=i2c_port, address=0x3D)
             self.oled_stats = ssd1306(serial_stats, width=128, height=64)
             print("✓ OLED统计屏初始化成功")
             
@@ -150,17 +186,19 @@ class DisplayController:
                     self.lcd_main = FramebufferDevice('/dev/fb1', width=240, height=320)
                     print("✓ LCD主屏初始化成功 (framebuffer)")
                 else:
-                    # 方法2：使用标准SPI设备
-                    print("使用标准SPI方式")
-                    serial_lcd = spi(port=0, device=0, gpio_DC=15, gpio_RST=13)
-                    self.lcd_main = st7789(
-                        serial_lcd, 
-                        width=240, 
-                        height=320,
-                        rotate=0,
-                        bgr=True
+                    # 方法2：使用直接SPI驱动（地瓜派RDK）
+                    print("使用直接SPI驱动")
+                    from src.st7789_driver import ST7789
+                    self.lcd_main = ST7789(
+                        width=320,
+                        height=240,
+                        rotate=3,
+                        dc_pin=22,
+                        rst_pin=27,
+                        bl_pin=18,
+                        spi_speed=40000000
                     )
-                    print("✓ LCD主屏初始化成功 (SPI)")
+                    print("✓ LCD主屏初始化成功 (直接SPI, 320x240, 40MHz)")
             except Exception as e:
                 print(f"LCD初始化失败: {e}")
                 self.lcd_main = None
@@ -790,25 +828,13 @@ class DisplayController:
             print("[显示] 已开启显示", flush=True)
             # 重新初始化显示设备
             try:
+                self._init_gpio_backlight()
                 self._init_displays()
                 self._load_fonts()
                 
-                # 恢复LCD背光和电源
-                if self.lcd_main:
-                    try:
-                        import subprocess
-                        # 方法1: 恢复背光电源 (0=FB_BLANK_UNBLANK)
-                        subprocess.run(['sudo', 'sh', '-c', 'echo 0 > /sys/class/backlight/rpi_backlight/bl_power'], 
-                                     check=False, capture_output=True, timeout=1)
-                        # 方法2: 设置亮度为1（最低可见亮度，避免刺眼）
-                        subprocess.run(['sudo', 'sh', '-c', 'echo 1 > /sys/class/backlight/rpi_backlight/brightness'], 
-                                     check=False, capture_output=True, timeout=1)
-                        # 方法3: 取消framebuffer blank
-                        subprocess.run(['sudo', 'sh', '-c', 'echo 0 > /sys/class/graphics/fb1/blank'], 
-                                     check=False, capture_output=True, timeout=1)
-                        print("[显示] LCD背光已开启 (bl_power=0, brightness=1, fb1/blank=0)", flush=True)
-                    except Exception as e:
-                        print(f"[显示] 开启LCD背光失败: {e}", flush=True)
+                # 开启LCD背光 (GPIO18)
+                self._set_backlight(True)
+                print("[显示] LCD背光已开启 (GPIO18)", flush=True)
                 
                 # 不显示启动画面，直接显示当前状态
                 # 刷新线程会自动更新内容
@@ -843,21 +869,9 @@ class DisplayController:
                     time.sleep(0.1)
                     self.lcd_main.display(img)
                     
-                    # 关闭LCD背光和电源（多种方式确保关闭）
-                    try:
-                        import subprocess
-                        # 方法1: 设置亮度为0
-                        subprocess.run(['sudo', 'sh', '-c', 'echo 0 > /sys/class/backlight/rpi_backlight/brightness'], 
-                                     check=False, capture_output=True, timeout=1)
-                        # 方法2: 关闭背光电源 (4=FB_BLANK_POWERDOWN)
-                        subprocess.run(['sudo', 'sh', '-c', 'echo 4 > /sys/class/backlight/rpi_backlight/bl_power'], 
-                                     check=False, capture_output=True, timeout=1)
-                        # 方法3: framebuffer blank (1=normal blank)
-                        subprocess.run(['sudo', 'sh', '-c', 'echo 1 > /sys/class/graphics/fb1/blank'], 
-                                     check=False, capture_output=True, timeout=1)
-                        print("[显示] LCD背光已完全关闭 (brightness=0, bl_power=4, fb1/blank=1)", flush=True)
-                    except Exception as e:
-                        print(f"[显示] 关闭LCD背光失败: {e}", flush=True)
+                    # 关闭LCD背光 (GPIO18)
+                    self._set_backlight(False)
+                    print("[显示] LCD背光已关闭 (GPIO18)", flush=True)
                     
                     print("[显示] LCD已清空", flush=True)
             except Exception as e:

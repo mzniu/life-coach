@@ -3,8 +3,8 @@
 
 set -e
 
-# 获取项目根目录（start.sh 在 deploy/ 子目录中）
-PROJECT_DIR="/home/cmit/LifeCoach"
+# 获取项目根目录（动态获取当前用户）
+PROJECT_DIR="$HOME/LifeCoach"
 
 echo "======================================"
 echo "Life Coach 启动检查"
@@ -132,6 +132,9 @@ echo ""
 
 # 设置使用国内镜像（用于运行时下载模型）
 export HF_ENDPOINT="https://hf-mirror.com"
+
+# 添加系统 Python 路径（用于地瓜派RDK的Hobot.GPIO）
+export PYTHONPATH="/usr/local/lib/python3.10/dist-packages/Hobot.GPIO-0.0.2-py3.10.egg:$PYTHONPATH"
 
 # 启动主程序
 exec python main.py

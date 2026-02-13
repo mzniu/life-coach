@@ -19,8 +19,8 @@ faster-whisper==1.1.0
 # ===== 文本纠错引擎 =====
 # macro-correct: 专业纠错(推荐,快5倍,1.5秒/条)
 # 依赖: PyTorch + transformers 4.30.2
-torch>=2.0.0+cpu
-transformers==4.30.2  # 锁定版本,不要升级(macro-correct兼容性)
+torch>=2.0.0
+transformers==4.30.2
 macro-correct==0.0.5
 
 # llama-cpp: 通用纠错(备选,轻量但慢,8秒/条)

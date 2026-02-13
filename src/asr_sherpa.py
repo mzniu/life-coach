@@ -1,292 +1,179 @@
 """
-Sherpa-ONNX ASR 封装
-使用 sherpa-onnx 的 Streaming Paraformer 进行语音识别
+Sherpa-ONNX ASR 引擎
+使用流式 Paraformer 模型进行语音识别
 """
 
 import numpy as np
-from pathlib import Path
-from typing import Optional
+import sherpa_onnx
 import time
-import os
-import sys
-
-# 导入配置
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-try:
-    from src.config import ASR_CONTEXT_SIZE, ASR_USE_CONTEXT
-    USE_CONFIG = True
-except ImportError:
-    ASR_CONTEXT_SIZE = 2
-    ASR_USE_CONTEXT = True
-    USE_CONFIG = False
+from pathlib import Path
+from typing import Optional, Dict, Any
 
 
-class SherpaASR:
-    """Sherpa-ONNX Streaming Paraformer ASR 封装"""
+class SherpaASREngine:
+    """Sherpa-ONNX ASR 引擎 - 使用流式 Paraformer 模型"""
     
     def __init__(
         self,
         model_dir: str = "models/sherpa/paraformer",
+        use_int8: bool = True,
         sample_rate: int = 16000,
-        num_threads: int = 2,
-        context_size: int = None
+        num_threads: int = 4,
+        provider: str = "cpu"
     ):
         """
-        初始化 Sherpa ASR
+        初始化 Sherpa-ONNX ASR 引擎
         
         Args:
-            model_dir: 模型目录
+            model_dir: Paraformer 模型目录
+            use_int8: 是否使用 int8 量化模型（更快）
             sample_rate: 音频采样率
-            num_threads: 线程数
-            context_size: 保留前N个分段的上下文（None则使用配置文件）
+            num_threads: 推理线程数
+            provider: 推理后端 ("cpu", "coreml", "cuda")
         """
-        import sherpa_onnx
-        
         self.model_dir = Path(model_dir)
         self.sample_rate = sample_rate
         self.num_threads = num_threads
-        self.context_size = context_size if context_size is not None else ASR_CONTEXT_SIZE
-        self.use_context = ASR_USE_CONTEXT
+        self.provider = provider
         
-        # 上下文管理
-        self.context_history = []  # 保存最近的识别结果
+        if use_int8:
+            encoder_model = self.model_dir / "encoder.int8.onnx"
+            decoder_model = self.model_dir / "decoder.int8.onnx"
+        else:
+            encoder_model = self.model_dir / "encoder.onnx"
+            decoder_model = self.model_dir / "decoder.onnx"
         
-        # 检查模型文件
-        self._check_model_files()
+        tokens_file = self.model_dir / "tokens.txt"
         
-        # 创建在线识别器 - 使用 from_paraformer 工厂方法
+        if not encoder_model.exists():
+            raise FileNotFoundError(f"Encoder model not found: {encoder_model}")
+        if not decoder_model.exists():
+            raise FileNotFoundError(f"Decoder model not found: {decoder_model}")
+        if not tokens_file.exists():
+            raise FileNotFoundError(f"Tokens file not found: {tokens_file}")
+        
+        print(f"[Sherpa-ONNX] 初始化流式 Paraformer 模型...")
+        print(f"  Encoder: {encoder_model.name}")
+        print(f"  Decoder: {decoder_model.name}")
+        print(f"  Threads: {num_threads}")
+        print(f"  Provider: {provider}")
+        
+        start_time = time.time()
         self.recognizer = sherpa_onnx.OnlineRecognizer.from_paraformer(
-            encoder=str(self.model_dir / "encoder.int8.onnx"),
-            decoder=str(self.model_dir / "decoder.int8.onnx"),
-            tokens=str(self.model_dir / "tokens.txt"),
+            tokens=str(tokens_file),
+            encoder=str(encoder_model),
+            decoder=str(decoder_model),
             num_threads=num_threads,
             sample_rate=sample_rate,
-            feature_dim=80,
-            decoding_method="greedy_search",
+            provider=provider,
+            enable_endpoint_detection=True,
+            rule1_min_trailing_silence=3.0,
+            rule2_min_trailing_silence=2.0,
+            rule3_min_utterance_length=30.0
         )
+        init_time = time.time() - start_time
         
-        print(f"[ASR] Sherpa-ONNX Streaming Paraformer 已初始化")
-        print(f"  模型: {self.model_dir}")
-        print(f"  采样率: {sample_rate}Hz")
-        print(f"  线程数: {num_threads}")
+        print(f"[Sherpa-ONNX] 流式 Paraformer 模型加载完成 ({init_time:.2f}s)")
+        
+        self.stats = {
+            'total_audio_duration': 0.0,
+            'total_transcribe_time': 0.0,
+            'transcription_count': 0,
+            'avg_rtf': 0.0
+        }
     
-    def _check_model_files(self):
-        """检查必需的模型文件"""
-        required_files = [
-            "encoder.int8.onnx",
-            "decoder.int8.onnx", 
-            "tokens.txt"
-        ]
-        
-        # 如果是 paraformer 模型，文件名可能不同
-        alt_files = [
-            "model.int8.onnx",
-            "encoder.onnx",
-            "decoder.onnx"
-        ]
-        
-        if not self.model_dir.exists():
-            raise FileNotFoundError(f"模型目录不存在: {self.model_dir}")
-        
-        # 检查 tokens.txt 是否存在
-        if not (self.model_dir / "tokens.txt").exists():
-            raise FileNotFoundError(f"tokens.txt 不存在: {self.model_dir / 'tokens.txt'}")
-        
-        print(f"[ASR] 模型目录: {self.model_dir}")
-        print(f"[ASR] 目录内容: {list(self.model_dir.glob('*'))}")
-    
-    def transcribe(self, audio_data: np.ndarray, use_context: bool = False) -> str:
+    def transcribe(self, audio_data: np.ndarray) -> Dict[str, Any]:
         """
-        识别完整音频（使用 Streaming Paraformer）
+        转录音频数据
         
         Args:
-            audio_data: 音频数据 (float32 或 int16)
-            use_context: 是否使用上下文提示
+            audio_data: 音频数据 (float32, 16kHz)
         
         Returns:
-            识别文本
+            转录结果字典
         """
-        import sherpa_onnx
+        start_time = time.time()
         
-        # 确保是 float32 格式
         if audio_data.dtype != np.float32:
             audio_data = audio_data.astype(np.float32)
         
-        # 如果是 int16 范围，归一化
-        if audio_data.max() > 1.0 or audio_data.min() < -1.0:
+        max_val = np.abs(audio_data).max()
+        if max_val > 1.0:
             audio_data = audio_data / 32768.0
         
-        # 创建在线流
+        audio_duration = len(audio_data) / self.sample_rate
+        
         stream = self.recognizer.create_stream()
-        
-        # 添加上下文提示（如果启用且有历史）
-        if use_context and self.context_history:
-            # 注意：Paraformer可能不直接支持hotwords，这里仅记录
-            context_text = ' '.join(self.context_history[-self.context_size:])
-            print(f"[ASR上下文] {context_text}")
-        
         stream.accept_waveform(self.sample_rate, audio_data)
         
-        # 流式解码
+        text_parts = []
         while self.recognizer.is_ready(stream):
             self.recognizer.decode_stream(stream)
+            if self.recognizer.is_endpoint(stream):
+                text = self.recognizer.get_result(stream)
+                if isinstance(text, str):
+                    text_parts.append(text)
+                elif hasattr(text, 'text'):
+                    text_parts.append(text.text)
+                self.recognizer.reset(stream)
         
-        # 获取结果（返回文本字符串）
-        result = self.recognizer.get_result(stream)
-        text = result.text if hasattr(result, 'text') else str(result)
+        if not self.recognizer.is_endpoint(stream):
+            text = self.recognizer.get_result(stream)
+            if isinstance(text, str):
+                text_parts.append(text)
+            elif hasattr(text, 'text'):
+                text_parts.append(text.text)
         
-        # 更新上下文历史
-        if text.strip():
-            self.context_history.append(text.strip())
-            if len(self.context_history) > self.context_size:
-                self.context_history.pop(0)
+        result_text = ''.join(text_parts)
+        transcribe_time = time.time() - start_time
         
-        return text
+        self.stats['total_audio_duration'] += audio_duration
+        self.stats['total_transcribe_time'] += transcribe_time
+        self.stats['transcription_count'] += 1
+        self.stats['avg_rtf'] = self.stats['total_transcribe_time'] / max(self.stats['total_audio_duration'], 0.001)
+        
+        return {
+            'text': result_text,
+            'duration': audio_duration,
+            'transcribe_time': transcribe_time,
+            'rtf': transcribe_time / max(audio_duration, 0.001),
+            'engine': 'sherpa-paraformer-streaming'
+        }
     
-    def transcribe_stream(
-        self,
-        audio_chunk: np.ndarray,
-        stream: Optional['sherpa_onnx.OnlineStream'] = None
-    ) -> tuple:
+    def transcribe_stream(self, audio_data: np.ndarray, **kwargs) -> str:
         """
-        流式识别音频块
-        
-        Args:
-            audio_chunk: 音频数据 (float32, [-1, 1])
-            stream: 流对象（如果为 None 则创建新流）
-        
-        Returns:
-            (text, is_endpoint, stream)
+        流式转录接口（兼容现有代码）
         """
-        import sherpa_onnx
-        
-        if stream is None:
-            stream = self.recognizer.create_stream()
-        
-        # 确保是 float32 格式
-        if audio_chunk.dtype != np.float32:
-            audio_chunk = audio_chunk.astype(np.float32)
-        
-        # 如果是 int16 范围，归一化
-        if audio_chunk.max() > 1.0 or audio_chunk.min() < -1.0:
-            audio_chunk = audio_chunk / 32768.0
-        
-        # 送入流
-        stream.accept_waveform(self.sample_rate, audio_chunk)
-        
-        # 解码
-        while self.recognizer.is_ready(stream):
-            self.recognizer.decode_stream(stream)
-        
-        # 获取结果（提取文本）
-        result = self.recognizer.get_result(stream)
-        text = result.text if hasattr(result, 'text') else str(result)
-        is_endpoint = self.recognizer.is_endpoint(stream)
-        
-        # 如果是端点，重置流
-        if is_endpoint:
-            self.recognizer.reset(stream)
-        
-        return text, is_endpoint, stream
+        result = self.transcribe(audio_data)
+        return result['text']
     
-    def transcribe_file(self, audio_file: str) -> str:
-        """
-        识别音频文件
-        
-        Args:
-            audio_file: 音频文件路径
-        
-        Returns:
-            识别文本
-        """
-        import wave
-        
-        with wave.open(audio_file, 'rb') as wf:
-            sample_rate = wf.getframerate()
-            n_frames = wf.getnframes()
-            audio_data = wf.readframes(n_frames)
-            
-            # 转换为 float32
-            audio = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
-            
-            if sample_rate != self.sample_rate:
-                print(f"[ASR] 警告: 音频采样率 {sample_rate}Hz 与模型不匹配 {self.sample_rate}Hz")
-            
-            return self.transcribe(audio)
+    def get_stats(self) -> Dict[str, Any]:
+        """获取性能统计"""
+        return self.stats.copy()
+    
+    def __str__(self):
+        return f"SherpaASREngine(model=streaming-paraformer, threads={self.num_threads})"
 
 
-# 向后兼容：提供与 faster-whisper 类似的接口
-class ParaformerModel:
-    """兼容 faster-whisper 接口的封装"""
+if __name__ == "__main__":
+    print("Testing Sherpa-ONNX Streaming Paraformer...")
     
-    def __init__(self, model_path: str, device: str = "cpu", compute_type: str = "int8"):
-        """
-        初始化模型（兼容 WhisperModel 接口）
-        
-        Args:
-            model_path: 模型路径
-            device: 设备（仅支持 cpu）
-            compute_type: 计算类型（仅支持 int8）
-        """
-        self.asr = SherpaASR(model_dir=model_path)
+    engine = SherpaASREngine(
+        model_dir="models/sherpa/paraformer",
+        use_int8=True,
+        num_threads=4
+    )
     
-    def transcribe(
-        self,
-        audio,
-        language: str = "zh",
-        task: str = "transcribe",
-        beam_size: int = 5,
-        best_of: int = 5,
-        temperature: float = 0.0,
-        **kwargs
-    ):
-        """
-        识别音频（兼容 WhisperModel.transcribe 接口）
-        
-        Args:
-            audio: 音频文件路径或音频数据
-            language: 语言（忽略，Paraformer 自动检测）
-            task: 任务（忽略）
-            其他参数: 忽略
-        
-        Returns:
-            (segments, info) 元组
-        """
-        # 如果是文件路径
-        if isinstance(audio, str):
-            text = self.asr.transcribe_file(audio)
-        else:
-            # 假设是 numpy 数组
-            text = self.asr.transcribe(audio)
-        
-        # 构造兼容的返回格式
-        class Segment:
-            def __init__(self, text):
-                self.text = text
-                self.start = 0.0
-                self.end = 0.0
-        
-        class Info:
-            def __init__(self):
-                self.language = "zh"
-                self.language_probability = 1.0
-                self.duration = 0.0
-        
-        segments = [Segment(text)]
-        info = Info()
-        
-        return segments, info
-
-
-def create_asr(model_path: str = "models/sherpa/paraformer", **kwargs):
-    """
-    创建 ASR 实例（工厂函数）
+    print("\nTest 1: Silence...")
+    audio = np.zeros(16000, dtype=np.float32)
+    result = engine.transcribe(audio)
+    print(f"  Result: '{result['text']}'")
+    print(f"  Time: {result['transcribe_time']:.3f}s")
     
-    Args:
-        model_path: 模型路径
-        **kwargs: 其他参数
+    print("\nTest 2: Random noise...")
+    audio = np.random.randn(16000).astype(np.float32) * 0.1
+    result = engine.transcribe(audio)
+    print(f"  Result: '{result['text']}'")
+    print(f"  Time: {result['transcribe_time']:.3f}s")
     
-    Returns:
-        SherpaASR 实例
-    """
-    return SherpaASR(model_dir=model_path, **kwargs)
+    print("\nAll tests passed!")

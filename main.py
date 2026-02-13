@@ -56,7 +56,6 @@ class LifeCoachApp:
             from src.display_controller import DisplayController
             from src.button_handler import ButtonHandler
             from src.audio_recorder_real import AudioRecorder
-            from src.asr_engine_real import ASREngine
             from src.file_storage import FileStorage
             from src.voiceprint_engine import VoiceprintEngine
             from src.realtime_transcriber import RealtimeTranscriber
@@ -68,7 +67,23 @@ class LifeCoachApp:
                 realtime_transcribe=True,  # 启用VAD和实时分段
                 segment_callback=self._on_audio_segment
             )
-            self.asr = ASREngine()
+            
+            # 根据配置选择 ASR 引擎
+            from src.config import ASR_ENGINE
+            if ASR_ENGINE == 'sherpa':
+                print("[ASR] 使用 Sherpa-ONNX Paraformer 引擎")
+                from src.asr_sherpa import SherpaASREngine
+                from src.config import SHERPA_MODEL_DIR, SHERPA_USE_INT8, SHERPA_NUM_THREADS
+                self.asr = SherpaASREngine(
+                    model_dir=SHERPA_MODEL_DIR,
+                    use_int8=SHERPA_USE_INT8,
+                    num_threads=SHERPA_NUM_THREADS
+                )
+            else:
+                print("[ASR] 使用 faster-whisper 引擎")
+                from src.asr_engine_real import ASREngine
+                self.asr = ASREngine()
+            
             self.storage = FileStorage()
             self.voiceprint = VoiceprintEngine()
             
@@ -577,32 +592,40 @@ class LifeCoachApp:
             stats['recording_status'] = '已完成'
             stats['word_count'] = self.word_count
         
-        # CPU温度
-        if PSUTIL_AVAILABLE:
-            try:
-                # 树莓派CPU温度
-                if os.path.exists('/sys/class/thermal/thermal_zone0/temp'):
-                    with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
+        # CPU温度 - 直接读取系统文件，不依赖psutil
+        try:
+            # 树莓派/地瓜派CPU温度
+            temp_paths = [
+                '/sys/class/thermal/thermal_zone0/temp',  # 标准路径
+                '/sys/class/hwmon/hwmon0/temp1_input',     # 备用路径
+            ]
+            for temp_path in temp_paths:
+                if os.path.exists(temp_path):
+                    with open(temp_path, 'r') as f:
                         temp = int(f.read().strip()) / 1000
                         stats['cpu_temp'] = temp
-                else:
-                    # 其他系统尝试用psutil
-                    temps = psutil.sensors_temperatures()
-                    if temps:
-                        for name, entries in temps.items():
-                            if entries:
-                                stats['cpu_temp'] = entries[0].current
-                                break
-            except Exception as e:
-                pass
+                        break
+        except Exception as e:
+            pass
         
-        # 内存使用率
-        if PSUTIL_AVAILABLE:
-            try:
-                mem = psutil.virtual_memory()
-                stats['memory_usage'] = mem.percent
-            except Exception as e:
-                pass
+        # 内存使用率 - 直接读取/proc/meminfo，不依赖psutil
+        try:
+            with open('/proc/meminfo', 'r') as f:
+                meminfo = {}
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        key = parts[0].rstrip(':')
+                        value = int(parts[1])
+                        meminfo[key] = value
+                
+                total = meminfo.get('MemTotal', 0)
+                available = meminfo.get('MemAvailable', meminfo.get('MemFree', 0))
+                if total > 0:
+                    used = total - available
+                    stats['memory_usage'] = (used / total) * 100
+        except Exception as e:
+            pass
         
         return stats
     

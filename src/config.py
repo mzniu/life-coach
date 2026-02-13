@@ -9,13 +9,19 @@ import platform
 
 # 平台检测
 def is_raspberry_pi():
-    """检测是否在树莓派上运行"""
+    """检测是否在树莓派或兼容设备上运行"""
     try:
         with open('/proc/cpuinfo', 'r') as f:
             cpuinfo = f.read()
-            return 'BCM' in cpuinfo or 'Raspberry' in cpuinfo
+            # 检测树莓派
+            if 'BCM' in cpuinfo or 'Raspberry' in cpuinfo:
+                return True
+            # 检测地瓜派RDK (ARM架构且不是WSL/虚拟机)
+            if platform.machine().startswith('aarch') or platform.machine().startswith('arm'):
+                return True
     except:
-        return False
+        pass
+    return False
 
 IS_RASPBERRY_PI = is_raspberry_pi()
 
@@ -48,6 +54,16 @@ WHISPER_DEVICE = "cpu"
 STORAGE_BASE_PATH = STORAGE_BASE
 
 print(f"[配置] Platform: {'Raspberry Pi' if IS_RASPBERRY_PI else 'Windows/Mac'}, WEB_PORT={WEB_PORT}, MODEL={WHISPER_MODEL}")
+
+# ==================== ASR 引擎配置 ====================
+# ASR 引擎选择: "whisper" (faster-whisper) 或 "sherpa" (sherpa-onnx Paraformer)
+# sherpa 使用 Paraformer 模型，在 ARM 设备上更快
+ASR_ENGINE = os.getenv('ASR_ENGINE', 'sherpa' if IS_RASPBERRY_PI else 'whisper').lower()
+
+# Sherpa-ONNX 配置
+SHERPA_MODEL_DIR = os.getenv('SHERPA_MODEL_DIR', 'models/sherpa/paraformer')
+SHERPA_USE_INT8 = os.getenv('SHERPA_USE_INT8', 'true').lower() == 'true'
+SHERPA_NUM_THREADS = int(os.getenv('SHERPA_NUM_THREADS', '4'))
 
 # ==================== GPIO 引脚定义 ====================
 # 基于扩展板实际物理引脚映射

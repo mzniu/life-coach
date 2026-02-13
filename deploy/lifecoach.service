@@ -4,10 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=cmit
-WorkingDirectory=/home/cmit/LifeCoach
-Environment="PATH=/home/cmit/LifeCoach/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStart=/bin/bash /home/cmit/LifeCoach/deploy/start.sh
+User=sunrise
+WorkingDirectory=/home/sunrise/LifeCoach
+Environment="PATH=/home/sunrise/LifeCoach/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/bin/bash /home/sunrise/LifeCoach/deploy/start.sh
 Restart=always
 RestartSec=10
 StandardOutput=journal

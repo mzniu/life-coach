@@ -9,15 +9,20 @@ import platform
 # 检测是否在树莓派环境
 IS_RASPBERRY_PI = platform.machine().startswith('aarch') or platform.machine().startswith('arm')
 
-# 尝试导入RPi.GPIO
+# 尝试导入 GPIO 库（优先 Hobot.GPIO，然后 RPi.GPIO）
+GPIO_AVAILABLE = False
+GPIO = None
+
 try:
-    if IS_RASPBERRY_PI:
-        import RPi.GPIO as GPIO
-        GPIO_AVAILABLE = True
-    else:
-        GPIO_AVAILABLE = False
+    import Hobot.GPIO as GPIO
+    GPIO_AVAILABLE = True
 except ImportError:
-    GPIO_AVAILABLE = False
+    try:
+        if IS_RASPBERRY_PI:
+            import RPi.GPIO as GPIO
+            GPIO_AVAILABLE = True
+    except ImportError:
+        pass
 
 # GPIO引脚定义
 GPIO_K1 = 4   # 录音按键（Pin 7）
@@ -39,10 +44,16 @@ class ButtonHandler:
                 GPIO.setmode(GPIO.BCM)
                 GPIO.setwarnings(False)
                 
-                # 配置K1按键（上拉输入，按下时接地）
-                GPIO.setup(GPIO_K1, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-                # 配置K4按键
-                GPIO.setup(GPIO_K4, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+                # 检查是否有 PUD_UP 属性（Hobot.GPIO 没有）
+                if hasattr(GPIO, 'PUD_UP'):
+                    # 配置K1按键（上拉输入，按下时接地）
+                    GPIO.setup(GPIO_K1, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+                    # 配置K4按键
+                    GPIO.setup(GPIO_K4, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+                else:
+                    # Hobot.GPIO 方式
+                    GPIO.setup(GPIO_K1, GPIO.IN)
+                    GPIO.setup(GPIO_K4, GPIO.IN)
                 
                 # 添加边缘检测
                 GPIO.add_event_detect(GPIO_K1, GPIO.FALLING, 
