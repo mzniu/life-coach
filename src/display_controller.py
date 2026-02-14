@@ -412,36 +412,27 @@ class DisplayController:
                     draw.rectangle(self.oled_stats.bounding_box, outline="white", fill="black")
                     
                     if transcript:
-                        # 显示实时转录
                         draw.text((5, 2), "实时转录", fill="white", 
-                                 font=self.fonts.get('oled_small'))
-                        draw.line([(0, 14), (128, 14)], fill="white", width=1)
+                                 font=self.fonts.get('oled_medium'))
+                        draw.line([(0, 16), (128, 16)], fill="white", width=1)
                         
-                        # 文本自动换行显示
-                        lines = self._wrap_text_oled(transcript, max_width=12)
-                        y = 18
-                        line_height = 12
-                        max_lines = 4  # OLED只显示4行
+                        lines = self._wrap_text_oled(transcript, max_width=10)
+                        y = 20
+                        line_height = 14
+                        max_lines = 3
                         
                         for i, line in enumerate(lines[-max_lines:]):
                             if y + line_height <= 64:
                                 draw.text((2, y), line, fill="white", 
-                                         font=self.fonts.get('oled_small'))
+                                         font=self.fonts.get('oled_medium'))
                                 y += line_height
                     else:
-                        # 无转录内容时显示提示
                         draw.text((10, 15), "等待转录...", fill="white", 
                                  font=self.fonts.get('oled_medium'))
                         
-                        # 显示录音次数
                         if recording_count > 0:
                             draw.text((20, 40), f"已录音 {recording_count} 次", 
                                      fill="white", font=self.fonts.get('oled_small'))
-                    
-                    # 显示当前时间
-                    current_time = datetime.now().strftime("%H:%M")
-                    draw.text((88, 54), current_time, fill="white", 
-                             font=self.fonts.get('oled_small'))
                     
         except Exception as e:
             print(f"更新转录屏失败: {e}")
@@ -832,16 +823,30 @@ class DisplayController:
                 self._init_displays()
                 self._load_fonts()
                 
-                # 开启LCD背光 (GPIO18)
                 self._set_backlight(True)
                 print("[显示] LCD背光已开启 (GPIO18)", flush=True)
                 
-                # 不显示启动画面，直接显示当前状态
-                # 刷新线程会自动更新内容
+                if self.oled_status:
+                    from luma.core.render import canvas
+                    with canvas(self.oled_status) as draw:
+                        draw.rectangle(self.oled_status.bounding_box, outline="white", fill="black")
+                        draw.text((20, 10), "Life Coach", fill="white", font=self.fonts.get('oled_large'))
+                        draw.text((30, 35), "显示已开启", fill="white", font=self.fonts.get('oled_medium'))
+                    print("[显示] OLED状态屏已刷新", flush=True)
+                
+                if self.oled_stats:
+                    from luma.core.render import canvas
+                    with canvas(self.oled_stats) as draw:
+                        draw.rectangle(self.oled_stats.bounding_box, outline="white", fill="black")
+                        draw.text((30, 25), "统计屏", fill="white", font=self.fonts.get('oled_medium'))
+                    print("[显示] OLED统计屏已刷新", flush=True)
+                
                 if not self.running:
                     self._start_lcd_refresh()
             except Exception as e:
                 print(f"[显示] 开启失败: {e}")
+                import traceback
+                traceback.print_exc()
                 self.enabled = False
                 return False
         else:
